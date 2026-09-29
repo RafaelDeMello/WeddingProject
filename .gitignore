@@ -1,0 +1,23 @@
+# Dependências e builds
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Segredos — nunca commitar
+.env
+.env.*
+!.env.example
+
+# Dados: banco SQLite e fotos — nunca commitar
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Logs e SO
+*.log
+.DS_Store
+Thumbs.db
