@@ -1,0 +1,3 @@
+@AGENTS.md
+@PROGRESS.md
+@BUGS.md
