@@ -1,0 +1,35 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Guest {
+  id        String   @id @default(uuid())
+  name      String
+  ipHash    String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  photos    Photo[]
+}
+
+model Photo {
+  id             String    @id @default(uuid())
+  guestId        String
+  guest          Guest     @relation(fields: [guestId], references: [id])
+  clientUploadId String
+  filePath       String
+  thumbPath      String
+  sizeBytes      Int
+  width          Int
+  height         Int
+  hiddenAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([guestId, clientUploadId])
+  @@index([guestId, createdAt])
+}
