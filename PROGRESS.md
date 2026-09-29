@@ -131,3 +131,66 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-29] Fase 2 — Guests, sessão, `/api/event`, `/api/me`
+
+**Ferramenta/modelo:** Claude Code (Opus 5.5)
+**Status:** concluída
+
+### O que foi feito
+- `GET /api/event` → `{ name, status, opensAt, closesAt, limits }`, com status `not_open` / `open` / `closed` calculado por relógio injetável (`AppDeps.now`).
+- `POST /api/guests`, nesta ordem: Origin → rate limit por IP → Zod (400 `validation_error`) → slug (404 `event_not_found`) → janela (403 `upload_closed`, mensagem distinta para "ainda não abriu" e "encerrado") → sessão válida existente (200 com o mesmo guest) → cria guest (201) e define cookie.
+- Nome: remove caracteres de controle, espaços de largura zero, BOM e overrides bidi (mantém ZWJ de emojis), colapsa espaços, trim, NFC; 1–40 code points.
+- Guest salva `ipHash = sha256(ip + SESSION_SECRET)` e `userAgent` truncado em 255.
+- `GET /api/me` → `{ guestId, name, quota }` com cota real calculada da tabela `Photo` (vazia até a Fase 3).
+- `POST /api/session/logout` → apaga o cookie (idempotente, protegido pela checagem de Origin). O guest continua no banco.
+- Sessão: `cookie-parser` com `SESSION_SECRET`; cookie `wr_session` assinado (HMAC-SHA256), `httpOnly`, `SameSite=Lax`, `Path=/`, `Secure` só em produção, expira 1 dia após `UPLOAD_CLOSES_AT`. `requireGuest` valida assinatura → formato UUID → guest existe no banco; se falhar, 401 `unauthorized` e apaga o cookie.
+- Checagem de `Origin` em `/api` para POST/PUT/PATCH/DELETE: estrita em produção (igual a `PUBLIC_BASE_URL`, ausente = 403 `invalid_origin`); em `development` aceita também `localhost`/`127.0.0.1` (http/https) e `https://*.trycloudflare.com`.
+- helmet com CSP restritiva (`default-src 'self'`, `img-src 'self' blob: data:`, `media-src 'self' blob:`, `object-src 'none'`, `frame-ancestors 'none'`…); HSTS e `upgrade-insecure-requests` só em produção; `Permissions-Policy: camera=(self), microphone=(), geolocation=()`.
+- Rate limit de criação de convidado: `express-rate-limit`, `IP_MAX_GUESTS_PER_WINDOW` (padrão 30) a cada 10 min, store em memória. 429 padronizado: `{ error: { code: 'rate_limited', message, retryAfterSeconds } }` + header `Retry-After` (helper `sendRateLimited`, reaproveitável na Fase 3).
+- pino-http com id por request; loga só método, URL e status (sem IP, cookie ou Authorization); ignora `/api/health`.
+
+### Decisões tomadas
+- Nova env opcional `IP_MAX_GUESTS_PER_WINDOW` (padrão 30), validada no `env.ts` e documentada no `.env.example` — aprovado.
+- `POST /api/guests` com sessão válida devolve 200 com o guest existente, ignorando o nome novo — aprovado; evita duplicatas em reload/duplo toque.
+- `resetsAt: null` quando não há fotos na janela — aprovado.
+- `remainingInWindow` é limitado também por `remainingTotal` (não mostra 10 na janela se só restam 3 no total). Fotos ocultas continuam contando na cota.
+- A checagem de sessão existente em `POST /api/guests` vem depois de slug e janela: fora da janela, nem quem já tem sessão "entra" de novo.
+- `retryAfterSeconds` vai dentro de `error` no corpo do 429.
+
+### Desvios da especificação
+- **Aprovado:** rota nova `POST /api/session/logout` (não prevista na spec), para pessoas diferentes usarem o mesmo celular. O botão "Não é você?" fica para a Fase 5.
+- **Aprovado:** env nova `IP_MAX_GUESTS_PER_WINDOW` (a spec pede limites configuráveis, mas não listava esta).
+- Checagem de Origin relaxada em dev, conforme aprovado na Fase 1.
+
+### Arquivos principais
+- `server/src/session.ts` — cookie assinado, `requireGuest`, `loadSessionGuest`
+- `server/src/security.ts` — helmet/CSP, Permissions-Policy, checagem de Origin
+- `server/src/rateLimit.ts` — limite de criação de convidado por IP
+- `server/src/guestName.ts` — schema/normalização do nome
+- `server/src/event.ts` — status e payload do evento
+- `server/src/quota.ts` — cálculo de cota (reaproveitado na Fase 3)
+- `server/src/routes/{event,guests,session}.ts`
+- `server/test/{guests,session,security,event}.test.ts`
+
+### Como rodar / testar
+- `npm test`
+- `npm run dev` e, por exemplo: `curl -c jar -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"slug":"<EVENT_SLUG>","name":"Ana"}' http://localhost:5173/api/guests` → `curl -b jar http://localhost:5173/api/me`
+
+### Testes
+- 76 passando, 0 falhando.
+- Cobertos: nome válido/inválido (vazio, espaços, controles, 41 chars, tipo errado, ausente), NFC e caracteres invisíveis, emoji contando 1; slug errado; antes/depois da janela; sessão existente → 200 sem duplicar; ipHash sem IP em claro; cookie adulterado (guestId trocado, assinatura alterada, sem assinatura, outro segredo); guest inexistente com assinatura válida; flags do cookie em produção e dev; logout (apaga cookie, idempotente, exige Origin); Origin em produção (ausente, outro domínio, subdomínio parecido, http, `null`, localhost, trycloudflare) e em dev; CSP/HSTS/Permissions-Policy; rate limit com 429 + `Retry-After` e isolamento por IP; três estados do evento; cota com janela deslizante, `resetsAt`, fotos ocultas e piso zero.
+- Verificação de mutação: tirar `Secure` em produção e liberar Origin de dev em produção quebram 3 testes.
+- Manual: fluxo event → guests → me → logout → me (401) via proxy do Vite; POST sem Origin → 403.
+
+### Pendências para a próxima fase
+- Fase 3: `connection_limit=1` na `DATABASE_URL` (aprovado) + lock em memória por guest + transação; reusar `getQuota` e `sendRateLimited`; limite de upload por IP (`IP_MAX_UPLOADS_PER_WINDOW`).
+- **Fase 5:** validar que a CSP (`script-src 'self'`, `style-src 'self'`) não bloqueia o SPA compilado servido pelo Express (scripts/estilos inline do build do Vite).
+- Fase 5: rota `/e/:slug` servindo o SPA, com 404 para slug diferente de `EVENT_SLUG`; botão "Não é você?" chamando `POST /api/session/logout`.
+- O rate limit em memória zera quando o container reinicia — aceitável (é só proteção contra abuso, a cota real está no banco).
+- Dependências desta fase instaladas com `--ignore-scripts`: um `npm run dev` aberto travava o DLL do engine do Prisma no Windows. O schema não mudou, então o client gerado continua válido.
+
+### Bugs relacionados
+- Nenhum.
