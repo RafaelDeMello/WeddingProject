@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext } from './helpers.js';
+import { createTestContext, ORIGIN } from './helpers.js';
 
 describe('app base', () => {
   let ctx: Awaited<ReturnType<typeof createTestContext>>;
@@ -25,6 +25,7 @@ describe('app base', () => {
   it('JSON acima de 10kb → 413 no formato de erro padrão', async () => {
     const res = await request(ctx.app)
       .post('/api/nao-existe')
+      .set('Origin', ORIGIN)
       .set('Content-Type', 'application/json')
       .send(JSON.stringify({ x: 'a'.repeat(11 * 1024) }));
     expect(res.status).toBe(413);
@@ -32,7 +33,11 @@ describe('app base', () => {
   });
 
   it('JSON malformado → 400 invalid_json', async () => {
-    const res = await request(ctx.app).post('/api/nao-existe').set('Content-Type', 'application/json').send('{x');
+    const res = await request(ctx.app)
+      .post('/api/nao-existe')
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .send('{x');
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('invalid_json');
   });

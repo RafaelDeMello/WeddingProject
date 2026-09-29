@@ -29,8 +29,10 @@ export const baseEnv: Record<string, string> = {
   DATABASE_URL: 'file:/tmp/unused.db',
 };
 
+export const ORIGIN = baseEnv.PUBLIC_BASE_URL!;
+
 /** Banco SQLite isolado (cópia do modelo já migrado) + app pronto para Supertest. */
-export async function createTestContext(overrides: Record<string, string> = {}) {
+export async function createTestContext(overrides: Record<string, string> = {}, opts: { now?: () => Date } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'weddingrafessa-test-'));
   const dbFile = path.join(dir, 'app.db');
   copyFileSync(inject('templateDb'), dbFile);
@@ -43,7 +45,7 @@ export async function createTestContext(overrides: Record<string, string> = {}) 
   });
   const prisma = createPrisma(env.DATABASE_URL);
   const journalMode = await initDb(prisma);
-  const app = createApp({ env, prisma, logger: createLogger('test') });
+  const app = createApp({ env, prisma, logger: createLogger('test'), now: opts.now });
 
   const cleanup = async () => {
     await prisma.$disconnect();

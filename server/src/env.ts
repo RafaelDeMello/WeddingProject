@@ -26,6 +26,7 @@ const envSchema = z
     GUEST_MAX_PER_WINDOW: positiveInt,
     GUEST_MAX_TOTAL: positiveInt,
     IP_MAX_UPLOADS_PER_WINDOW: positiveInt,
+    IP_MAX_GUESTS_PER_WINDOW: positiveInt.default(30),
     MAX_UPLOAD_BYTES: positiveInt,
     MIN_FREE_DISK_MB: z.coerce.number().int().min(0),
     SESSION_SECRET: secret(32),
