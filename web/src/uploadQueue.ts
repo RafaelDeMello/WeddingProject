@@ -1,4 +1,5 @@
 // Fila de envio: uma foto por vez, retry com backoff exponencial, sempre com o mesmo clientUploadId.
+import { uuidv4 } from './uuid';
 import { ApiError, isRetryable, type UploadResult } from './api';
 
 /** Espera antes da 2ª, 3ª, 4ª e 5ª tentativa. */
@@ -55,7 +56,7 @@ export class UploadQueue {
   private readonly clearTimer: (handle: unknown) => void;
 
   constructor(private readonly deps: QueueDeps) {
-    this.newId = deps.newId ?? (() => crypto.randomUUID());
+    this.newId = deps.newId ?? (() => uuidv4());
     this.now = deps.now ?? (() => Date.now());
     this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));

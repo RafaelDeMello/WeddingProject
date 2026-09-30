@@ -1,5 +1,6 @@
 // API simulada para desenvolver o front sem backend (VITE_MOCK_API=true)
 // ou sem o endpoint de upload (VITE_MOCK_API=photos).
+import { uuidv4 } from './uuid';
 import { ApiError, networkError, type Api, type EventStatus, type GuestSession, type Quota } from './api';
 
 export type UploadScenario =
@@ -108,7 +109,7 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
       if (!trimmed || [...trimmed].length > 40) {
         throw new ApiError(400, 'validation_error', 'Informe um nome de 1 a 40 caracteres.');
       }
-      if (!guest) guest = { guestId: crypto.randomUUID(), name: trimmed };
+      if (!guest) guest = { guestId: uuidv4(), name: trimmed };
       return session();
     },
 
@@ -157,7 +158,7 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
         const resetsAt = current.resetsAt ? Date.parse(current.resetsAt) : now() + windowMs;
         throw rateLimited(current.remainingTotal <= 0 ? windowMs / 1000 : (resetsAt - now()) / 1000);
       }
-      const created = { id: crypto.randomUUID(), createdAt: now() };
+      const created = { id: uuidv4(), createdAt: now() };
       photos.set(`${owner()}:${clientUploadId}`, { ...created, owner: owner() });
       return { id: created.id, quota: quota(), duplicate: false };
     },
