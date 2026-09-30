@@ -362,3 +362,56 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Fase 5 — Front funcional e identidade visual (branch `FeatWeb`, PR #1)
+
+**Ferramenta/modelo:** front desenvolvido na branch `FeatWeb` (sessão separada) e mergeado pelo PR #1 (`bbcfc7b`); revisão pós-merge e este registro: Claude Code (Sonnet 5.5)
+**Status:** concluída
+
+### O que foi feito
+- Cliente de API tipado (`web/src/api.ts`) com o contrato do `AGENTS.md`: `ApiError` com `code`/`status`/`retryAfterSeconds`, timeouts (15 s JSON, 60 s upload), mensagem do 429 com "tente novamente em X min" e retry automático só para falha de rede e 5xx (507, 429, 4xx não repetem). Mock da API (`VITE_MOCK_API=true|photos`) **somente no `vite dev`**: o build de produção nunca simula e o código do mock não vai para o bundle (verificado).
+- Fila de envio (`uploadQueue.ts`): uma foto por vez, backoff exponencial 1 s → 2 s → 4 s → 8 s (máx. 5 tentativas), sempre com o mesmo `clientUploadId`; retry manual, descarte e reenvio quando a internet volta.
+- Persistência das fotos pendentes no IndexedDB por `guestId` (`pendingStore.ts`), com reenvio ao reabrir a página e "melhor esforço" se o IndexedDB falhar.
+- Câmera com `getUserMedia` (traseira por padrão, botão para virar), liberada quando a aba vai para segundo plano, com **fallback** `<input type="file" accept="image/*" capture="environment">` em qualquer falha (permissão negada, sem suporte, câmera indisponível). Compressão no cliente por canvas: JPEG, lado maior 1600 px, qualidade 0,8 (mesmo caminho no fallback).
+- Fluxo do convidado (`App.tsx`, `components/*`): estados do evento (não abriu / aberto / encerrado / link incompleto / evento não encontrado), nome uma única vez, câmera → preview ("Ficou boa?", "Tirar outra" / "Enviar") → lista de envios, "N fotos restantes", aviso de limite, "Foto enviada ✓" e **"Não é você?"** (chama `POST /api/session/logout` e limpa as pendentes do convidado).
+- Testes do front com Vitest em `web/test/` (lógica pura: API, fila/backoff, mock).
+
+### Refinamento visual (2026-09-30)
+- Identidade do casamento: paleta em variáveis CSS, Cormorant Garamond (títulos/números), Great Vibes (nome do evento, "Obrigado!"), Inter (texto). Fontes woff2 do Fontsource 5.3.0 (subset latin, OFL) em `web/src/fonts/`, servidas pelo app.
+- Cartões marfim com borda dupla em sálvia e cantos recortados (`mask` + `-webkit-mask`); câmera em tela cheia com faixas translúcidas; pílula de status que leva à lista; aviso "Foto enviada ✓" por ~2 s; preview em moldura blush.
+- Contraste AA verificado (texto 4,98–8,64:1); dourado e sálvia só em detalhes. `prefers-reduced-motion` respeitado. Sem estilos inline.
+- Nova cor `--erro #A33A2A` (aprovada). Textos: "N fotos restantes", "Obrigado!" como título do encerramento, "Ficou boa?" no preview.
+- Pendência: validar a aparência em iPhone (Safari) e Android (Chrome) reais.
+
+### Decisões tomadas
+- O front não muda o contrato da API: toda a lógica de cota, idempotência e erros continua no servidor; o cliente só reage aos códigos (`unauthorized`, `upload_closed`, `rate_limited`, `quota_exceeded`, `insufficient_storage`...).
+- Sem estilos inline no HTML (compatível com `style-src 'self'`); fontes como arquivos separados (não inlinadas), compatível com `font-src 'self'`; SVGs pequenos viram `data:image`, permitido por `img-src`.
+- `/e/:slug` já era servido pelo Express desde a Fase 6 (antecipado da Fase 5); o front lê o slug do próprio caminho.
+
+### Desvios da especificação
+- Nenhum. (A ordem de implementação segue a reordenação registrada em "Ajuste entre fases": Fase 6 antes da 5.)
+
+### Arquivos principais
+- `web/src/api.ts`, `web/src/uploadQueue.ts`, `web/src/pendingStore.ts`, `web/src/camera.ts`, `web/src/compress.ts`, `web/src/slug.ts`, `web/src/mockApi.ts`
+- `web/src/App.tsx`, `web/src/components/{GuestHome,CameraView,NameForm,PhotoPreview,UploadList,MockPanel}.tsx`
+- `web/src/styles.css`, `web/src/fonts/*` (woff2 + licenças OFL), `web/src/assets/*.svg`
+- `web/vite.config.ts` (portas por `web/.env.local`, não versionado), `web/vitest.config.ts`, `web/test/*`
+
+### Como rodar / testar
+- `npm run dev` (Vite em :5173 com proxy para a API em :3000); `VITE_MOCK_API=true` em `web/.env.local` para rodar sem a API.
+- `npm test` (a raiz agora roda os testes dos dois workspaces), `npm run typecheck`, `npm run build`.
+
+### Testes
+- **45 passando no web** (API/erros, fila e backoff, mock, funções puras) e **174 no server**, todos passando após o merge; typecheck limpo.
+- **Pendência de CSP e Docker depois do merge: cumprida.** O `globalSetup` do server faz um `vite build` real, então a suíte `spa.test.ts` rodou contra o build com as 6 fontes `.woff2` e os SVGs: passou (sem script/estilo inline, CSS só com `url()` da própria origem ou `data:image`, sem `eval`). Imagem Docker construída com o código mergeado, rodando read-only/não-root: `/e/<slug>` abriu num navegador real com fontes e CSS carregando de `/assets` e **sem nenhuma violação de CSP** no console; fluxo nome → fallback de câmera → compressão (4000×3000 → 1600×1200) → envio (201) → cota 10 → 9; foto salva em 1600×1200 sem EXIF, miniatura 400×300; sessão persiste no reload; "Não é você?" volta à tela de nome; sem overflow horizontal em 375 px.
+- **Em produção (informado pelo usuário):** o app está no ar em `fotos.example.com`, com **envio validado a partir de um celular real no 4G**.
+
+### Pendências para a próxima fase
+- Validar a aparência e a câmera ao vivo em **iPhone (Safari)** e **Android (Chrome)** reais (o teste de câmera não roda no navegador de desenvolvimento); confirmar HEIC no `<input capture>` do iPhone.
+- Melhorias apontadas na revisão (não bloqueiam): (1) `total_quota_exceeded` (429) é tratado como limite da janela — a lista de envios e o aviso mostrariam "tente em N min" com N enorme em vez de "você já enviou o máximo"; (2) `crypto.randomUUID()` sem fallback (iOS < 15.4); (3) campo de nome com `maxLength` 80 contra o limite de 40 do servidor; (4) fotos pendentes no IndexedDB ficam órfãs se a sessão cair (401) e o guest mudar.
+- O front novo ainda não tem a galeria compartilhada (mudança de escopo registrada na entrada seguinte).
+
+### Bugs relacionados
+- Nenhum.
