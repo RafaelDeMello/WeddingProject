@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createTestContext, ORIGIN } from './helpers.js';
+import { parseEnv } from '../src/env.js';
+import { baseEnv, createTestContext, ORIGIN } from './helpers.js';
 
 let ctx: Awaited<ReturnType<typeof createTestContext>> | undefined;
 afterEach(async () => {
@@ -110,8 +111,10 @@ describe('rate limit de criação de convidado por IP', () => {
     expect(await ctx.prisma.guest.count()).toBe(4);
   });
 
-  it('usa o padrão de 30 quando a env não é definida', async () => {
-    ctx = await createTestContext();
-    expect(ctx.env.IP_MAX_GUESTS_PER_WINDOW).toBe(30);
+  it('usa os padrões (150 convidados, 1000 uploads por IP) quando as envs não são definidas', async () => {
+    const { IP_MAX_GUESTS_PER_WINDOW, IP_MAX_UPLOADS_PER_WINDOW, ...rest } = baseEnv;
+    const env = parseEnv(rest);
+    expect(env.IP_MAX_GUESTS_PER_WINDOW).toBe(150);
+    expect(env.IP_MAX_UPLOADS_PER_WINDOW).toBe(1000);
   });
 });
