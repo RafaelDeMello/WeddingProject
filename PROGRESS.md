@@ -194,3 +194,70 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Fase 3 — Upload completo: validação, sharp, cotas, idempotência, disco
+
+**Ferramenta/modelo:** Claude Code (Opus 5.5 / Sonnet 5.5)
+**Status:** concluída
+
+### O que foi feito
+- `POST /api/photos` (multipart: `photo` + `clientUploadId`), com as checagens nesta ordem: Origin (403) → rate limit por IP (429 `rate_limited`) → sessão (401) → janela de upload (403 `upload_closed`) → espaço em disco (507 `insufficient_storage`) → multer → Zod estrito (400 `validation_error`) → **idempotência** (200 com a foto existente, sem olhar a cota) → **cota fail-fast** (429) → magic bytes (415) → sharp (422) → gravação → **lock do convidado + transação** (recheca idempotência e cota, insere) → 201 `{ id, quota }`.
+- Erros do multer: arquivo grande → 413 `file_too_large`; arquivo extra, campo de arquivo com outro nome, campos demais/grandes, multipart malformado → 400 `invalid_upload`; sem arquivo ou corpo não multipart → 400 `missing_photo`; campo de texto desconhecido → 400 `validation_error`. Limites: `files: 1`, `fileSize: MAX_UPLOAD_BYTES`, `fields: 5`, `fieldSize: 1 KB`, `parts: 6`.
+- `clientUploadId`: `z.uuid()` estrito, normalizado para minúsculas (`ABC…` e `abc…` são a mesma foto).
+- Imagem: `file-type` (só jpeg/png/webp, ignora Content-Type e nome) → sharp com `limitInputPixels` 50 MP, `.rotate()`, máximo 2000px sem ampliar, JPEG q85, sem metadados (EXIF/GPS removidos) → miniatura 400px. Falha de decodificação/limite de pixels → 422 `invalid_image`.
+- Disco: gravação em `data/tmp/<uuid>.part` + `rename` atômico para `photos/AAAA-MM-DD/<photoId>.jpg` (dia no fuso `America/Sao_Paulo`) e `thumbs/<photoId>.jpg`. Caminhos gravados no banco são relativos a `DATA_DIR`. Nomes sempre gerados pelo servidor.
+- Limpeza: `PhotoFiles` registra tudo o que criou; se o request não termina em commit (cota estourada na recheca, duplicata concorrente, exceção), apaga os arquivos antes de responder. `data/tmp` é esvaziado no boot.
+- Espaço em disco: `statfs` injetável (`AppDeps.statfs`); abaixo de `MIN_FREE_DISK_MB` → 507 e log de erro `ALERTA…`. Se o `statfs` falhar, o envio segue (log de aviso).
+- Cota: 429 `quota_exceeded` (janela; `retryAfterSeconds` até a foto mais antiga sair da janela) e 429 `total_quota_exceeded` (`retryAfterSeconds` até `UPLOAD_CLOSES_AT`, mensagem sem "tente em X min"). Ambos com header `Retry-After`. `Photo.createdAt` usa o relógio injetável.
+- `connection_limit=1` aplicado automaticamente na `DATABASE_URL` (`withConnectionLimit`), além de WAL e `busy_timeout`.
+- Concorrência: `KeyedMutex` (lock por convidado) + transação interativa; `Semaphore` limita a **2 processamentos de imagem simultâneos**; `sharp.cache(false)`.
+- Rate limit de upload por IP (`IP_MAX_UPLOADS_PER_WINDOW`, 10 min) contando toda tentativa, antes de ler o corpo.
+
+### Decisões tomadas
+- Idempotência vem **antes** da cota — um retry legítimo de foto já aceita não pode falhar por cota esgotada.
+- Processamento pesado (decodificar, gravar) fica **fora** do lock; só recheca + insert são serializados — fotos de convidados diferentes processam em paralelo.
+- Arquivos são gravados antes do insert: se o processo cair entre o `rename` e o insert, sobra no máximo um arquivo sem registro (inofensivo: não aparece no admin nem no ZIP). O inverso (registro sem arquivo) quebraria o ZIP.
+- HEIC não é aceito (415): o fluxo normal passa pelo canvas (JPEG) e o Safari converte HEIC no `<input capture>`. **Confirmar num iPhone real na Fase 5.**
+- Fotos ocultas continuam contando na cota (já na Fase 2).
+- Com `connection_limit=1` as transações já se serializam no banco; o lock por convidado continua (aprovado) como defesa explícita, barata e independente da configuração do pool.
+
+### Desvios da especificação
+- **Mudança de spec (aprovada):** padrões dos limites por IP: `IP_MAX_UPLOADS_PER_WINDOW` 200 → **1000** e `IP_MAX_GUESTS_PER_WINDOW` 30 → **150** (`env.ts` e `.env.example`). Motivo: dezenas de convidados dividem o IP do Wi-Fi do salão; a cota real é por convidado e o limite por IP é só proteção contra abuso. **O `AGENTS.md` ainda mostra 200/30** (não editei a especificação por conta própria).
+- **Aprovado (Fase 1):** lock em memória por convidado + transação + `busy_timeout` + `connection_limit=1`, em vez de apenas "transação".
+- **Aprovado:** 429 `total_quota_exceeded` com `retryAfterSeconds` até `UPLOAD_CLOSES_AT`.
+- **Aprovado:** semáforo de 2 processamentos simultâneos + `sharp.cache(false)`; **na Fase 6 usar `mem_limit: 1g`** no compose (a spec dizia 512m).
+- Limites extras do multer além da spec: `fieldSize: 1 KB` e `parts: 6`.
+
+### Arquivos principais
+- `server/src/routes/photos.ts` — a rota e a ordem das checagens
+- `server/src/upload.ts` — multer e mapeamento de erros
+- `server/src/imageProcessing.ts` — magic bytes, sharp, miniatura
+- `server/src/storage.ts` — gravação atômica, descarte, `statfs`, limpeza do tmp
+- `server/src/concurrency.ts` — `KeyedMutex` e `Semaphore`
+- `server/src/quota.ts` — `getQuota` e `quotaBlock`
+- `server/src/rateLimit.ts` / `server/src/errors.ts` — limitador por IP e 429 padronizado
+- `server/src/db.ts` — `withConnectionLimit`
+- `server/test/{photos,photos-limits,concurrency}.test.ts`, `photoHelpers.ts`, `fixtures.ts` (imagens geradas com sharp; nenhum binário commitado)
+
+### Como rodar / testar
+- `npm test` / `npm run typecheck` / `npm run build`
+- Manual (dev): criar guest (`POST /api/guests`) e depois `curl -b jar -H "Origin: http://localhost:5173" -F photo=@foto.jpg -F clientUploadId=<uuid> http://localhost:3000/api/photos`
+
+### Testes
+- 141 passando, 0 falhando (3 execuções seguidas, sem flakiness).
+- Cobertos: upload válido (caminhos gerados pelo servidor, 2000px/400px, sem ampliar, PNG/WebP → JPEG, nome malicioso ignorado); EXIF/GPS/orientação (fixture com GPS e orientação 6: arquivo e miniatura sem EXIF, pixels girados); magic bytes (texto `.jpg`, GIF → 415; JPEG com nome `.txt` aceito); JPEG truncado e imagem > 50 MP → 422; tamanho (limite −1, exato, 9 MB); erros do multer (sem arquivo, JSON, dois arquivos, campo com outro nome, campos demais, campo > 1 KB, campo desconhecido, multipart truncado); `clientUploadId` inválido; 401, Origin, fora da janela; cota por janela (429, `Retry-After`, relógio avançando), por convidado, ocultas contam; cota total; **concorrência** (10 em paralelo com limite 3 → 3×201 + 7×429; com total 4; convidados diferentes em paralelo); **idempotência** (repetição, 5 simultâneos, sem consumir cota, com cota esgotada, arquivo inválido no retry); disco (statfs simulado, limite exato, bigint, statfs real, falha ao medir); rate limit por IP (vários convidados no mesmo IP, `Retry-After`, vem antes da sessão, outro IP passa); `KeyedMutex`, `Semaphore`, `withConnectionLimit`.
+- Todos os testes de falha verificam que `tmp/` está vazio e que não há arquivo órfão (arquivos no disco == registros no banco).
+- Verificação de mutação: remover a recheca da cota na transação quebra 3 testes; remover o descarte de arquivos quebra 4.
+- Manual: upload real no servidor de dev (201 → retry 200, cota descontada uma vez, `tmp/` vazio, texto `.jpg` → 415).
+
+### Pendências para a próxima fase
+- Fase 4: admin (Basic Auth com `timingSafeEqual`, rate limit de falhas, `no-store`), listagem, thumbs, ocultar, ZIP em streaming. Resolver caminhos sempre a partir de `DATA_DIR` + `filePath` do banco (nunca de input).
+- Fase 5: validar CSP com o SPA compilado; `/e/:slug` com 404 para slug errado; botão "Não é você?"; tratar 413/415/422/429 (`quota_exceeded` × `total_quota_exceeded`) e 507 na UI; confirmar HEIC no iPhone.
+- Fase 6: `mem_limit: 1g`; entrypoint cria `/data/db` antes do `migrate deploy`; `scripts/reset-data`.
+- Risco conhecido: `memoryStorage` mantém o arquivo inteiro na RAM durante o request (normal ~300 KB, fallback até 8 MB); com muitos envios grandes simultâneos o uso de memória sobe — mitigado por `mem_limit: 1g`; conferir no loadtest da Fase 7.
+- O rate limit em memória zera ao reiniciar o container (aceitável).
+
+### Bugs relacionados
+- Nenhum.
