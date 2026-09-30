@@ -17,6 +17,10 @@ data/
 *.db-shm
 *.sqlite
 
+# Backup: config local e cópias do banco
+backup.env
+backups/
+
 # Logs e SO
 *.log
 .DS_Store
