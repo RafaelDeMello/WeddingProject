@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  TOTAL_QUOTA_MESSAGE,
   api,
   errorMessage,
   isRetryable,
   isTotalQuotaError,
-  rateLimitMessage,
   type ApiError,
   type GuestSession,
   type Quota,
 } from '../api';
+import { quotaView } from '../quota';
 import { clearPending, idbPendingStorage, pendingStoreFor, restorePending } from '../pendingStore';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
 import { CameraView } from './CameraView';
@@ -106,12 +105,8 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
   }, [quota.resetsAt]);
 
   const pending = items.filter((i) => i.status !== 'sent' && i.status !== 'failed').length;
-  const remaining = Math.max(0, quota.remainingInWindow - pending);
-  const limitReached = remaining <= 0;
-  const limitMessage =
-    quota.remainingTotal - pending <= 0
-      ? TOTAL_QUOTA_MESSAGE
-      : rateLimitMessage(secondsUntil(quota.resetsAt));
+  const { available: remaining, suffix: quotaSuffix, limitMessage } = quotaView(quota, pending, Date.now());
+  const limitReached = limitMessage !== null;
 
   function send() {
     if (!captured) return;
@@ -164,7 +159,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
         <p className="banner">{limitMessage}</p>
       ) : (
         <p className="pill pill-quota">
-          <span className="num">{remaining}</span> {remaining === 1 ? 'foto restante' : 'fotos restantes'}
+          <span className="num">{remaining}</span> {quotaSuffix}
         </p>
       )}
       {notice && !limitReached && <p className="banner">{notice}</p>}
