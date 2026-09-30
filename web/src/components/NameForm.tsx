@@ -34,9 +34,11 @@ export function NameForm({ slug, eventName, onSession, onEventError }: Props) {
   }
 
   return (
-    <form className="name-form" onSubmit={submit}>
-      <h1>{eventName}</h1>
-      <p>Tire fotos da festa e envie para os noivos. Antes, diga quem você é:</p>
+    <form className="card name-form" onSubmit={submit}>
+      <div className="ornament" aria-hidden="true" />
+      <h1 className="title-script">{eventName}</h1>
+      <div className="divider" aria-hidden="true" />
+      <p className="lead">Tire fotos da festa e envie para os noivos. Antes, diga quem você é:</p>
       <label htmlFor="guest-name">Seu nome</label>
       <input
         id="guest-name"

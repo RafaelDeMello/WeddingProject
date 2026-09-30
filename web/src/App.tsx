@@ -101,17 +101,19 @@ export function App() {
       let content;
       if (event.status === 'not_open') {
         content = (
-          <Message title={event.name}>
+          <Message title={event.name} script>
             O envio de fotos abre em {dateFormat.format(new Date(event.opensAt))}. Volte nesse horário!
           </Message>
         );
       } else if (event.status === 'closed') {
         content = (
-          <Message title={event.name}>O envio de fotos foi encerrado. Obrigado por participar!</Message>
+          <Message eyebrow={event.name} title="Obrigado!" script>
+            O envio de fotos foi encerrado.
+          </Message>
         );
       } else if (!session) {
         content = (
-          <main>
+          <main className="page">
             <NameForm
               slug={slug}
               eventName={event.name}
@@ -140,11 +142,28 @@ export function App() {
   }
 }
 
-function Message({ title, children }: { title: string; children?: ReactNode }) {
+interface MessageProps {
+  title: string;
+  /** Título em Great Vibes: só para textos curtos e decorativos (nome do evento, "Obrigado!"). */
+  script?: boolean;
+  eyebrow?: string;
+  children?: ReactNode;
+}
+
+function Message({ title, script, eyebrow, children }: MessageProps) {
   return (
-    <main className="message">
-      <h1>{title}</h1>
-      {children && <div>{children}</div>}
+    <main className="page">
+      <article className="card message">
+        <div className="ornament" aria-hidden="true" />
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h1 className={script ? 'title-script' : 'title'}>{title}</h1>
+        {children && (
+          <>
+            <div className="divider" aria-hidden="true" />
+            <div className="message-body">{children}</div>
+          </>
+        )}
+      </article>
     </main>
   );
 }

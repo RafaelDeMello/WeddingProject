@@ -16,8 +16,9 @@ export function PhotoPreview({ photo, onSend, onRetake }: Props) {
   }, [photo]);
 
   return (
-    <section className="preview">
-      {url && <img src={url} alt="Prévia da foto" />}
+    <section className="preview" aria-label="Prévia da foto">
+      <h2 className="preview-title">Ficou boa?</h2>
+      <div className="preview-frame">{url && <img src={url} alt="Prévia da foto" />}</div>
       <div className="preview-actions">
         <button type="button" className="secondary" onClick={onRetake}>
           Tirar outra

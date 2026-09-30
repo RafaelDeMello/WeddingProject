@@ -32,8 +32,11 @@ export function UploadList({ items, onRetry, onDiscard }: Props) {
   if (items.length === 0) return null;
 
   return (
-    <section className="uploads">
-      <h2>{sent === 1 ? '1 foto enviada' : `${sent} fotos enviadas`}</h2>
+    <section id="envios" className="card uploads">
+      <h2>
+        <span className="num">{sent}</span> {sent === 1 ? 'foto enviada' : 'fotos enviadas'}
+      </h2>
+      <div className="divider" aria-hidden="true" />
       <ul>
         {visible.map((item) => (
           <li key={item.clientUploadId} className={`upload upload-${item.status}`}>

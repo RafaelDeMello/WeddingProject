@@ -24,6 +24,9 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
   const [captured, setCaptured] = useState<Blob | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  // "Foto enviada ✓" por ~2 s a cada envio concluído (a tela já voltou para a câmera).
+  const [toastKey, setToastKey] = useState(0);
+  const [toastVisible, setToastVisible] = useState(false);
 
   // Callbacks da fila leem sempre a versão atual das props.
   const onSessionErrorRef = useRef(onSessionError);
@@ -34,7 +37,10 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
       new UploadQueue({
         upload: (photo, id) => api.uploadPhoto(photo, id),
         onChange: setItems,
-        onSent: (result) => setQuota(result.quota),
+        onSent: (result) => {
+          setQuota(result.quota);
+          setToastKey((k) => k + 1);
+        },
         store: pendingStoreFor(session.guestId),
         onFailed: (error) => {
           if (error.status === 401 || error.code === 'upload_closed') onSessionErrorRef.current(error);
@@ -44,6 +50,13 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
   );
 
   useEffect(() => () => queue.dispose(), [queue]);
+
+  useEffect(() => {
+    if (toastKey === 0) return;
+    setToastVisible(true);
+    const timer = setTimeout(() => setToastVisible(false), 2000);
+    return () => clearTimeout(timer);
+  }, [toastKey]);
 
   // Reabriu a página: reenvia o que ficou pendente (mesmo clientUploadId → o servidor não duplica).
   useEffect(() => {
@@ -121,28 +134,67 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     }
   }
 
-  return (
-    <main className="guest-home">
-      <header className="guest-header">
-        <span>
+  const failed = items.filter((i) => i.status === 'failed').length;
+  const sent = items.filter((i) => i.status === 'sent').length;
+  const statusParts = [
+    pending > 0 ? `${pending} enviando` : null,
+    failed > 0 ? `${failed} ${failed === 1 ? 'falhou' : 'falharam'}` : null,
+  ].filter(Boolean);
+  const statusText =
+    statusParts.length > 0 ? statusParts.join(' · ') : sent > 0 ? `${sent} ${sent === 1 ? 'enviada' : 'enviadas'} ✓` : null;
+
+  const topBar = (
+    <div className="topbar">
+      <div className="topbar-row">
+        <span className="greeting">
           Olá, <strong>{session.name}</strong>
         </span>
         <button type="button" className="link" onClick={logout} disabled={loggingOut}>
           Não é você?
         </button>
-      </header>
+      </div>
+      {limitReached ? (
+        <p className="banner">{limitMessage}</p>
+      ) : (
+        <p className="pill pill-quota">
+          <span className="num">{remaining}</span> {remaining === 1 ? 'foto restante' : 'fotos restantes'}
+        </p>
+      )}
+      {notice && !limitReached && <p className="banner">{notice}</p>}
+    </div>
+  );
 
-      <p className={limitReached ? 'quota quota-empty' : 'quota'}>
-        {limitReached
-          ? limitMessage
-          : remaining === 1
-            ? 'Você pode enviar mais 1 foto agora.'
-            : `Você pode enviar mais ${remaining} fotos agora.`}
-      </p>
-      {notice && !limitReached && <p className="notice">{notice}</p>}
+  // Toque na pílula leva à lista de envios, abaixo da câmera.
+  const statusPill = statusText && (
+    <button
+      type="button"
+      className={failed > 0 ? 'pill pill-status pill-status-failed' : 'pill pill-status'}
+      onClick={() =>
+        document.getElementById('envios')?.scrollIntoView({
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        })
+      }
+    >
+      {statusText}
+    </button>
+  );
 
-      <CameraView disabled={limitReached || captured !== null} hidden={captured !== null} onCapture={setCaptured} />
+  return (
+    <main className="guest-home">
+      <CameraView
+        disabled={limitReached || captured !== null}
+        hidden={captured !== null}
+        onCapture={setCaptured}
+        topBar={topBar}
+        statusPill={statusPill}
+      />
       {captured && <PhotoPreview photo={captured} onSend={send} onRetake={() => setCaptured(null)} />}
+
+      {toastVisible && (
+        <p key={toastKey} className="toast" role="status">
+          Foto enviada ✓
+        </p>
+      )}
 
       <UploadList
         items={items}

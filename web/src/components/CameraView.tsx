@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { CameraError, cameraFailureMessage, openCamera, stopStream, type CameraFailure, type Facing } from '../camera';
 import { captureVideoFrame, compressFile } from '../compress';
 
@@ -8,6 +8,10 @@ interface Props {
   /** Mantém a câmera aberta mas escondida enquanto o preview está na tela (evita pedir permissão de novo). */
   hidden: boolean;
   onCapture(photo: Blob): void;
+  /** Saudação e cota: sobre o vídeo (faixa superior) ou acima do cartão do fallback. */
+  topBar: ReactNode;
+  /** Pílula de status dos envios, na faixa inferior. */
+  statusPill: ReactNode;
 }
 
 function usePageVisible(): boolean {
@@ -20,7 +24,7 @@ function usePageVisible(): boolean {
   return visible;
 }
 
-export function CameraView({ disabled, hidden, onCapture }: Props) {
+export function CameraView({ disabled, hidden, onCapture, topBar, statusPill }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [facing, setFacing] = useState<Facing>('environment');
@@ -97,53 +101,70 @@ export function CameraView({ disabled, hidden, onCapture }: Props) {
   );
 
   return (
-    <section className={hidden ? 'camera is-hidden' : 'camera'}>
+    <section className={`camera ${failure ? 'camera-fallback' : 'camera-live'}${hidden ? ' is-hidden' : ''}`}>
       {failure ? (
-        <div className="camera-fallback">
-          <p>{cameraFailureMessage(failure)}</p>
-          <button type="button" className="primary" disabled={disabled || busy} onClick={() => fileRef.current?.click()}>
-            {busy ? 'Preparando…' : 'Tirar foto'}
-          </button>
+        <>
+          {topBar}
+          <div className="card fallback-card">
+            <div className="ornament" aria-hidden="true" />
+            <p>{cameraFailureMessage(failure)}</p>
+            <button
+              type="button"
+              className="primary"
+              disabled={disabled || busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              {busy ? 'Preparando…' : 'Tirar foto'}
+            </button>
+            {error && <p className="error">{error}</p>}
+            {statusPill && <div className="fallback-status">{statusPill}</div>}
+          </div>
           {fileInput}
-        </div>
+        </>
       ) : (
         <>
-          <div className="viewfinder">
-            <video
-              ref={videoRef}
-              className={facing === 'user' ? 'mirror' : undefined}
-              playsInline
-              muted
-              autoPlay
-              onLoadedData={() => setReady(true)}
-            />
-            {!ready && <p className="viewfinder-status">Abrindo a câmera…</p>}
-          </div>
-          <div className="camera-actions">
+          <video
+            ref={videoRef}
+            className={facing === 'user' ? 'viewfinder mirror' : 'viewfinder'}
+            playsInline
+            muted
+            autoPlay
+            onLoadedData={() => setReady(true)}
+          />
+          {!ready && <p className="viewfinder-status">Abrindo a câmera…</p>}
+          <div className="band band-top">{topBar}</div>
+          <div className="band band-bottom">
+            {error && <p className="band-error">{error}</p>}
+            <div className="camera-actions">
+              <button
+                type="button"
+                className="ghost"
+                disabled={!ready || busy}
+                onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+              >
+                Virar câmera
+              </button>
+              <button
+                type="button"
+                className="shutter"
+                aria-label="Tirar foto"
+                disabled={!ready || busy || disabled}
+                onClick={capture}
+              />
+              <span className="camera-actions-status">{statusPill}</span>
+            </div>
             <button
               type="button"
-              className="secondary"
-              disabled={!ready || busy}
-              onClick={() => setFacing((f) => (f === 'environment' ? 'user' : 'environment'))}
+              className="link"
+              disabled={disabled || busy}
+              onClick={() => fileRef.current?.click()}
             >
-              Virar câmera
+              Problemas com a câmera? Use a câmera do celular
             </button>
-            <button
-              type="button"
-              className="shutter"
-              aria-label="Tirar foto"
-              disabled={!ready || busy || disabled}
-              onClick={capture}
-            />
-            <span className="camera-actions-spacer" />
           </div>
-          <button type="button" className="link" disabled={disabled || busy} onClick={() => fileRef.current?.click()}>
-            Problemas com a câmera? Use a câmera do celular
-          </button>
           {fileInput}
         </>
       )}
-      {error && <p className="error">{error}</p>}
     </section>
   );
 }
