@@ -9,12 +9,13 @@ import {
   type Quota,
   type UploadResult,
 } from '../api';
-import { mergeGrid, nextOpenKey, type LocalPhoto } from '../gallery';
+import { mergeGrid, nextOpenKey, type GridEntry, type LocalPhoto } from '../gallery';
 import { clearPending, idbPendingStorage, pendingStoreFor, restorePending } from '../pendingStore';
 import { quotaView } from '../quota';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
 import { useGallery } from '../useGallery';
 import { CameraView } from './CameraView';
+import { ConfirmDeleteSheet } from './ConfirmDeleteSheet';
 import { FailedSheet } from './FailedSheet';
 import { GalleryScreen } from './GalleryScreen';
 import { PhotoPreview } from './PhotoPreview';
@@ -52,12 +53,15 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
   // clientUploadId → id no servidor, para trocar a foto local pelo item real da galeria.
   const [serverIds, setServerIds] = useState<ReadonlyMap<string, string>>(new Map());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
-  const [viewerRemoved, setViewerRemoved] = useState(false);
+  const [viewerNotice, setViewerNotice] = useState<string | null>(null);
+  // Foto que pedimos para apagar e ainda estava aberta no visualizador.
+  const [confirmDelete, setConfirmDelete] = useState<{ serverId: string; url: string; key: string } | null>(null);
+  const deletingKey = useRef<string | null>(null);
   const [failedSheetId, setFailedSheetId] = useState<string | null>(null);
   const [attentionKey, setAttentionKey] = useState<string | null>(null);
-  // "Foto enviada ✓" por ~2 s a cada envio concluído (a tela já voltou para a galeria).
-  const [toastKey, setToastKey] = useState(0);
-  const [toastVisible, setToastVisible] = useState(false);
+  // Aviso curto (~2 s): "Foto enviada ✓" (a tela já voltou para a galeria), "Foto apagada"...
+  const [toast, setToast] = useState<{ text: string; key: number } | null>(null);
+  const showToast = useCallback((text: string) => setToast((t) => ({ text, key: (t?.key ?? 0) + 1 })), []);
 
   // Callbacks da fila leem sempre a versão atual das props.
   const onSessionErrorRef = useRef(onSessionError);
@@ -73,7 +77,7 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
           setQuota(result.quota);
           setServerIds((m) => new Map(m).set(item.clientUploadId, result.id));
           setSentCount((n) => n + 1);
-          setToastKey((k) => k + 1);
+          setToast((t) => ({ text: 'Foto enviada ✓', key: (t?.key ?? 0) + 1 }));
           // O item real entra na galeria logo, sem esperar os 15 s.
           refreshGalleryRef.current();
         },
@@ -96,11 +100,10 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
   useEffect(() => () => queue.dispose(), [queue]);
 
   useEffect(() => {
-    if (toastKey === 0) return;
-    setToastVisible(true);
-    const timer = setTimeout(() => setToastVisible(false), 2000);
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2000);
     return () => clearTimeout(timer);
-  }, [toastKey]);
+  }, [toast]);
 
   // Reabriu a página ou a sessão anterior caiu (401): reenvia as pendentes por esta sessão.
   // restore ignora ids já na fila, então rodar duas vezes (StrictMode) não duplica.
@@ -166,9 +169,14 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
     ];
   });
 
-  const { entries, superseded } = mergeGrid(gallery.state.items, locals, gallery.state.removed);
+  const { entries, superseded } = mergeGrid(
+    gallery.state.items,
+    locals,
+    new Set([...gallery.state.removed, ...gallery.state.deleted]),
+    new Set(gallery.state.deleting.keys()),
+  );
 
-  // O item real chegou (ou a moderação removeu): a foto local sai sem duplicar.
+  // O item real chegou (ou a moderação removeu, ou o convidado apagou): a foto local sai sem duplicar.
   const supersededKey = superseded.join(',');
   useEffect(() => {
     if (!supersededKey) return;
@@ -180,7 +188,8 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
     }
   }, [supersededKey, queue]);
 
-  // Visualizador aberto numa foto que sumiu (moderação): segue para a vizinha ou fecha.
+  // Visualizador aberto numa foto que sumiu: segue para a vizinha ou fecha.
+  // Moderação avisa "não está mais disponível"; a que o próprio convidado apagou, não.
   const lastViewerIndex = useRef(0);
   useEffect(() => {
     if (viewerKey === null) return;
@@ -196,10 +205,34 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
       return;
     }
     const replacement = nextOpenKey(entries, viewerKey, lastViewerIndex.current);
+    const ownDelete = deletingKey.current === viewerKey;
+    deletingKey.current = null;
     setViewerKey(replacement);
-    setViewerRemoved(replacement !== null);
-    if (replacement === null) setNotice('A foto que você via não está mais disponível.');
+    setViewerNotice(ownDelete || replacement === null ? null : 'A foto que você via não está mais disponível.');
+    if (replacement === null && !ownDelete) setNotice('A foto que você via não está mais disponível.');
   }, [entries, viewerKey, serverIds]);
+
+  const askDelete = useCallback(
+    (entry: GridEntry) => {
+      const serverId =
+        entry.kind === 'server' ? (entry.item.mine ? entry.item.id : null) : entry.local.status === 'sent' ? entry.local.serverId : null;
+      if (!serverId) return;
+      const url = entry.kind === 'server' ? entry.item.thumbUrl : entry.local.url;
+      setConfirmDelete({ serverId, url, key: entry.key });
+    },
+    [],
+  );
+
+  async function confirmDeletion() {
+    if (!confirmDelete) return;
+    const { serverId, key } = confirmDelete;
+    setConfirmDelete(null);
+    if (viewerKey === key) deletingKey.current = key;
+    // Remoção otimista: some da grade e do visualizador já (o navegador pode ter a imagem em cache).
+    const { outcome } = await gallery.deletePhoto(serverId);
+    if (outcome === 'deleted') showToast('Foto apagada');
+    else showToast('Não foi possível apagar a foto. Tente novamente.');
+  }
 
   const pending = items.filter((i) => i.status === 'queued' || i.status === 'sending' || i.status === 'waiting_retry').length;
   const failedItems = items.filter((i) => i.status === 'failed');
@@ -311,15 +344,15 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
   const failedItem = failedSheetId ? items.find((i) => i.clientUploadId === failedSheetId) : undefined;
 
   const openViewer = useCallback((key: string) => {
-    setViewerRemoved(false);
+    setViewerNotice(null);
     setViewerKey(key);
   }, []);
   const closeViewer = useCallback(() => {
     setViewerKey(null);
-    setViewerRemoved(false);
+    setViewerNotice(null);
   }, []);
   const navigateViewer = useCallback((key: string) => {
-    setViewerRemoved(false);
+    setViewerNotice(null);
     setViewerKey(key);
   }, []);
 
@@ -370,9 +403,18 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
           entries={entries}
           openKey={viewerKey}
           myName={session.name}
-          removedNotice={viewerRemoved}
+          notice={viewerNotice}
+          onDelete={askDelete}
           onNavigate={navigateViewer}
           onClose={closeViewer}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDeleteSheet
+          url={confirmDelete.url}
+          onConfirm={() => void confirmDeletion()}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
 
@@ -396,9 +438,9 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
         />
       )}
 
-      {toastVisible && (
-        <p key={toastKey} className="toast" role="status">
-          Foto enviada ✓
+      {toast && (
+        <p key={toast.key} className="toast" role="status">
+          {toast.text}
         </p>
       )}
     </>
