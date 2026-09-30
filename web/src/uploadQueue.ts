@@ -97,6 +97,14 @@ export class UploadQueue {
     }
   }
 
+  /** Tira da lista uma foto já enviada (ex.: o item real chegou na galeria). */
+  forget(clientUploadId: string): void {
+    const item = this.find(clientUploadId);
+    if (item?.status !== 'sent') return;
+    this.items = this.items.filter((i) => i !== item);
+    this.emit();
+  }
+
   /** Descarta uma foto que não foi enviada. */
   discard(clientUploadId: string): void {
     const item = this.find(clientUploadId);

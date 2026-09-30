@@ -232,3 +232,22 @@ describe('UploadQueue', () => {
     expect(log).toEqual(['save', 'remove']);
   });
 });
+
+describe('UploadQueue.forget', () => {
+  it('remove da lista só fotos já enviadas', async () => {
+    let fail = true;
+    const { queue, items } = setup(async () => {
+      if (fail) throw new ApiError(422, 'invalid_image', 'x');
+      return ok();
+    });
+    queue.enqueue(blob());
+    await vi.runAllTimersAsync();
+    queue.forget('id-1');
+    expect(items()).toHaveLength(1);
+    fail = false;
+    queue.enqueue(blob());
+    await vi.runAllTimersAsync();
+    queue.forget('id-2');
+    expect(items().map((i) => i.clientUploadId)).toEqual(['id-1']);
+  });
+});

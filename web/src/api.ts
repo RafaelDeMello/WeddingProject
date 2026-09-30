@@ -31,6 +31,36 @@ export interface UploadResult {
   duplicate: boolean;
 }
 
+export interface GalleryItem {
+  id: string;
+  guestName: string;
+  /** ISO 8601. */
+  createdAt: string;
+  /** Mesma origem; o cookie de sessão autoriza. */
+  thumbUrl: string;
+  photoUrl: string;
+  /** Foto do próprio convidado. */
+  mine: boolean;
+}
+
+export interface GalleryPage {
+  /** Mais recentes primeiro. */
+  items: GalleryItem[];
+  nextCursor: string | null;
+  /** Relógio do servidor no momento da consulta: o primeiro `since` das atualizações. */
+  serverTime?: string;
+}
+
+export interface GalleryUpdates {
+  added: GalleryItem[];
+  /** Fotos ocultadas pela moderação. */
+  removedIds: string[];
+  /** Próximo `since` (o cliente aplica a sobreposição). */
+  serverTime: string;
+  /** Há mais mudanças: consultar de novo na hora com o novo serverTime. */
+  hasMore: boolean;
+}
+
 export interface Api {
   getEvent(): Promise<EventInfo>;
   createGuest(slug: string, name: string): Promise<GuestSession>;
@@ -38,6 +68,8 @@ export interface Api {
   getMe(): Promise<GuestSession>;
   logout(): Promise<void>;
   uploadPhoto(photo: Blob, clientUploadId: string): Promise<UploadResult>;
+  getGallery(cursor: string | null, limit: number): Promise<GalleryPage>;
+  getGalleryUpdates(since: string): Promise<GalleryUpdates>;
 }
 
 /** Código usado quando a requisição nem chegou a ter resposta (sem rede, timeout). */
@@ -203,27 +235,53 @@ export function createHttpApi(fetchImpl: FetchLike = (input, init) => fetch(inpu
       );
       return { id: body.id, quota: body.quota, duplicate: status === 200 };
     },
+    async getGallery(cursor, limit) {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set('cursor', cursor);
+      return (await request<GalleryPage>(`/api/gallery?${params}`, { method: 'GET' }, JSON_TIMEOUT_MS)).body;
+    },
+    async getGalleryUpdates(since) {
+      const params = new URLSearchParams({ since });
+      const body = (await request<GalleryUpdates>(`/api/gallery/updates?${params}`, { method: 'GET' }, JSON_TIMEOUT_MS))
+        .body;
+      return { ...body, hasMore: body.hasMore === true };
+    },
   };
 }
 
-export type MockMode = 'off' | 'all' | 'photos';
+/** Grupos de endpoints que podem ser simulados. */
+export type MockPart = 'session' | 'photos' | 'gallery';
 
-/** VITE_MOCK_API=true → tudo simulado; =photos → só o upload simulado. */
-export function parseMockMode(value: string | undefined): MockMode {
-  if (value === 'true') return 'all';
-  if (value === 'photos') return 'photos';
-  return 'off';
+/**
+ * VITE_MOCK_API: `true` simula tudo; senão, partes separadas por vírgula
+ * (`photos`, `gallery`, `session`) — o resto vai para a API real.
+ */
+export function parseMockParts(value: string | undefined): ReadonlySet<MockPart> {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (raw === 'true' || raw === 'all') return new Set<MockPart>(['session', 'photos', 'gallery']);
+  const valid: MockPart[] = ['session', 'photos', 'gallery'];
+  return new Set(raw.split(',').map((p) => p.trim()).filter((p): p is MockPart => valid.includes(p as MockPart)));
 }
 
 // Mock só no `vite dev`: o build de produção nunca simula, mesmo com um .env.local esquecido,
 // e o minificador descarta o código do mock (import.meta.env.DEV vira `false`).
-export const mockMode: MockMode = import.meta.env.DEV ? parseMockMode(import.meta.env.VITE_MOCK_API) : 'off';
+export const mockParts: ReadonlySet<MockPart> = import.meta.env.DEV
+  ? parseMockParts(import.meta.env.VITE_MOCK_API)
+  : new Set();
 
-const mock = import.meta.env.DEV && mockMode !== 'off' ? createMockApi() : null;
+const mock = import.meta.env.DEV && mockParts.size > 0 ? createMockApi() : null;
 const http = createHttpApi();
 
-/** Controle do mock (cenário de upload, status do evento); null fora do modo mock. */
+/** Controle do mock (cenários, galeria, status do evento); null fora do modo mock. */
 export const mockControl = mock?.control ?? null;
 
-export const api: Api =
-  mock === null ? http : mockMode === 'all' ? mock.api : { ...http, uploadPhoto: mock.api.uploadPhoto };
+function pick<K extends keyof Api>(part: MockPart, keys: K[]): Pick<Api, K> {
+  const source = mock !== null && mockParts.has(part) ? mock.api : http;
+  return Object.fromEntries(keys.map((k) => [k, source[k]])) as Pick<Api, K>;
+}
+
+export const api: Api = {
+  ...pick('session', ['getEvent', 'createGuest', 'getMe', 'logout']),
+  ...pick('photos', ['uploadPhoto']),
+  ...pick('gallery', ['getGallery', 'getGalleryUpdates']),
+};

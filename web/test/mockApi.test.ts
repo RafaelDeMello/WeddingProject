@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ApiError, NETWORK_ERROR } from '../src/api';
-import { createMockApi } from '../src/mockApi';
+import { MOCK_UPDATES_LIMIT, createMockApi } from '../src/mockApi';
+import { applyPage, drainUpdates, initialGalleryState, sinceWithOverlap } from '../src/gallery';
 
 let clock = 0;
 const photo = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' });
@@ -101,5 +102,84 @@ describe('mockApi: cota total', () => {
     await api.uploadPhoto(photo(), 'a');
     await api.uploadPhoto(photo(), 'b');
     await expect(api.uploadPhoto(photo(), 'c')).rejects.toMatchObject({ status: 429, code: 'total_quota_exceeded' });
+  });
+});
+
+describe('mockApi: galeria', () => {
+  let t = Date.parse('2026-10-03T22:00:00.000Z');
+  const opts = { now: () => t, delay: async () => undefined };
+
+  async function logged(seed: 'empty' | 'few' | 'many') {
+    const mock = createMockApi({ ...opts, gallerySeed: seed });
+    await mock.api.createGuest('dev123', 'Ana');
+    return mock;
+  }
+
+  it('sem sessão → 401', async () => {
+    const { api } = createMockApi(opts);
+    await expect(api.getGallery(null, 30)).rejects.toMatchObject({ status: 401 });
+    await expect(api.getGalleryUpdates(new Date(t).toISOString())).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('galeria vazia', async () => {
+    const { api } = await logged('empty');
+    await expect(api.getGallery(null, 30)).resolves.toMatchObject({ items: [], nextCursor: null });
+  });
+
+  it('paginação: 95 fotos em páginas de 30, mais recentes primeiro, sem repetir', async () => {
+    const { api } = await logged('many');
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const page = await api.getGallery(cursor, 30);
+      seen.push(...page.items.map((i) => i.id));
+      const times = page.items.map((i) => Date.parse(i.createdAt));
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+      cursor = page.nextCursor;
+      pages++;
+    } while (cursor);
+    expect(pages).toBe(4);
+    expect(new Set(seen).size).toBe(95);
+  });
+
+  it('itens com thumbUrl/photoUrl e mine só para as fotos do convidado', async () => {
+    const { api } = await logged('few');
+    await api.uploadPhoto(photo(), 'minha');
+    const { items } = await api.getGallery(null, 30);
+    expect(items).toHaveLength(13);
+    expect(items.filter((i) => i.mine).map((i) => i.guestName)).toEqual(['Ana']);
+    // Fotos dos outros: SVG em data: (a CSP permite); as do convidado usam a própria imagem enviada.
+    expect(items.find((i) => !i.mine)!.thumbUrl).toMatch(/^data:image\/svg\+xml/);
+  });
+
+  it('updates: added, removedIds (moderação), reexibida volta como added', async () => {
+    const mock = await logged('few');
+    const first = await mock.api.getGallery(null, 30);
+    const since = first.serverTime!;
+    t += 1000;
+    mock.control.addOthers(1);
+    const hidden = mock.control.hideNewest(first.items[0]!.id);
+    t += 1000;
+    const u1 = await mock.api.getGalleryUpdates(since);
+    expect(u1.added).toHaveLength(1);
+    expect(u1.removedIds).toEqual([hidden]);
+    expect(u1.hasMore).toBe(false);
+    t += 1000;
+    mock.control.unhideLast();
+    const u2 = await mock.api.getGalleryUpdates(u1.serverTime);
+    expect(u2.added.map((i) => i.id)).toEqual([hidden]);
+  });
+
+  it('rajada acima do limite: hasMore, e o cliente (drainUpdates) recebe todas sem travar', async () => {
+    const mock = await logged('empty');
+    let state = applyPage(initialGalleryState(), await mock.api.getGallery(null, 30), '2026-10-03T00:00:00.000Z');
+    t += 1000;
+    mock.control.addOthers(45);
+    const u = await mock.api.getGalleryUpdates(sinceWithOverlap(state.lastServerTime!));
+    expect(u.added).toHaveLength(MOCK_UPDATES_LIMIT);
+    expect(u.hasMore).toBe(true);
+    state = await drainUpdates(state, (since) => mock.api.getGalleryUpdates(since));
+    expect(state.items).toHaveLength(45);
   });
 });

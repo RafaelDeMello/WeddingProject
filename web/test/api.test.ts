@@ -8,7 +8,7 @@ import {
   isTotalQuotaError,
   isRetryable,
   parseApiError,
-  parseMockMode,
+  parseMockParts,
   rateLimitMessage,
 } from '../src/api';
 
@@ -75,12 +75,22 @@ describe('mensagens', () => {
   });
 });
 
-describe('parseMockMode', () => {
-  it('true → all, photos → photos, resto → off', () => {
-    expect(parseMockMode('true')).toBe('all');
-    expect(parseMockMode('photos')).toBe('photos');
-    expect(parseMockMode(undefined)).toBe('off');
-    expect(parseMockMode('false')).toBe('off');
+describe('parseMockParts', () => {
+  const parts = (v: string | undefined) => [...parseMockParts(v)].sort();
+
+  it('true simula tudo', () => {
+    expect(parts('true')).toEqual(['gallery', 'photos', 'session']);
+  });
+
+  it('partes separadas por vírgula, com espaços e maiúsculas', () => {
+    expect(parts('gallery')).toEqual(['gallery']);
+    expect(parts(' Gallery , photos ')).toEqual(['gallery', 'photos']);
+  });
+
+  it('vazio, false ou desconhecido: nada simulado', () => {
+    expect(parts(undefined)).toEqual([]);
+    expect(parts('false')).toEqual([]);
+    expect(parts('abc,')).toEqual([]);
   });
 });
 
@@ -213,5 +223,29 @@ describe('erros do upload (códigos reais do servidor)', () => {
     ] as const) {
       expect(canRetryManually(e(status, code))).toBe(false);
     }
+  });
+});
+
+describe('createHttpApi: galeria', () => {
+  it('GET /api/gallery com limit e cursor', async () => {
+    const urls: string[] = [];
+    const api = createHttpApi(async (url) => {
+      urls.push(url);
+      return jsonResponse(200, { items: [], nextCursor: null, serverTime: '2026-10-03T22:00:00.000Z' });
+    });
+    await api.getGallery(null, 30);
+    await api.getGallery('abc/+=', 30);
+    expect(urls).toEqual(['/api/gallery?limit=30', '/api/gallery?limit=30&cursor=abc%2F%2B%3D']);
+  });
+
+  it('GET /api/gallery/updates com since; hasMore ausente vira false', async () => {
+    const urls: string[] = [];
+    const api = createHttpApi(async (url) => {
+      urls.push(url);
+      return jsonResponse(200, { added: [], removedIds: [], serverTime: '2026-10-03T22:00:00.000Z' });
+    });
+    const updates = await api.getGalleryUpdates('2026-10-03T21:59:30.000Z');
+    expect(urls).toEqual(['/api/gallery/updates?since=2026-10-03T21%3A59%3A30.000Z']);
+    expect(updates.hasMore).toBe(false);
   });
 });
