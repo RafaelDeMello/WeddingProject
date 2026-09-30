@@ -33,6 +33,8 @@ const envSchema = z
     SESSION_SECRET: secret(32),
     ADMIN_USER: secret(1),
     ADMIN_PASSWORD: secret(12),
+    /** Tentativas de login do admin com credenciais erradas por IP a cada 15 min (em produção, 30). */
+    ADMIN_MAX_FAILURES_PER_WINDOW: positiveInt.default(10),
     DATA_DIR: z.string().min(1),
     /** Build do front (padrão: ../web/dist relativo ao server). */
     WEB_DIST_DIR: z.string().min(1).optional(),
