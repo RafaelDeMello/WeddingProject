@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage, isRetryable, rateLimitMessage, type ApiError, type GuestSession, type Quota } from '../api';
+import { clearPending, loadPending, pendingStoreFor } from '../pendingStore';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
 import { CameraView } from './CameraView';
 import { PhotoPreview } from './PhotoPreview';
@@ -34,6 +35,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
         upload: (photo, id) => api.uploadPhoto(photo, id),
         onChange: setItems,
         onSent: (result) => setQuota(result.quota),
+        store: pendingStoreFor(session.guestId),
         onFailed: (error) => {
           if (error.status === 401 || error.code === 'upload_closed') onSessionErrorRef.current(error);
           else if (error.status === 429) setNotice(rateLimitMessage(error.retryAfterSeconds));
@@ -42,6 +44,17 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
   );
 
   useEffect(() => () => queue.dispose(), [queue]);
+
+  // Reabriu a página: reenvia o que ficou pendente (mesmo clientUploadId → o servidor não duplica).
+  useEffect(() => {
+    let cancelled = false;
+    void loadPending(session.guestId).then((records) => {
+      if (!cancelled) records.forEach((record) => queue.restore(record));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [queue, session.guestId]);
 
   // Voltou a internet: reenvia na hora o que falhou por rede.
   useEffect(() => {
@@ -99,6 +112,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     try {
       await api.logout();
       queue.dispose();
+      await clearPending(session.guestId);
       onLoggedOut();
     } catch (err) {
       // Sem apagar o cookie, a próxima pessoa entraria com a sessão desta.

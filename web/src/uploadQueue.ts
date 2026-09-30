@@ -47,6 +47,8 @@ export class UploadQueue {
   private items: QueueItem[] = [];
   private timers = new Map<string, unknown>();
   private busy = false;
+  /** Gravações em andamento no store: o remove espera o save da mesma foto terminar. */
+  private saving = new Map<string, Promise<void>>();
   private readonly newId: () => string;
   private readonly now: () => number;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
@@ -100,7 +102,7 @@ export class UploadQueue {
     if (!item || item.status === 'sending' || item.status === 'sent') return;
     this.cancelTimer(clientUploadId);
     this.items = this.items.filter((i) => i !== item);
-    void this.deps.store?.remove(clientUploadId).catch(() => undefined);
+    this.unpersist(clientUploadId);
     this.emit();
   }
 
@@ -121,10 +123,21 @@ export class UploadQueue {
       nextRetryAt: null,
     };
     this.items = [...this.items, item];
-    if (persist) void this.deps.store?.save(saved).catch(() => undefined);
+    if (persist && this.deps.store) {
+      const saving = this.deps.store.save(saved).catch(() => undefined);
+      this.saving.set(saved.clientUploadId, saving);
+    }
     this.emit();
     this.pump();
     return item;
+  }
+
+  private unpersist(clientUploadId: string): void {
+    const store = this.deps.store;
+    if (!store) return;
+    const saving = this.saving.get(clientUploadId) ?? Promise.resolve();
+    this.saving.delete(clientUploadId);
+    void saving.then(() => store.remove(clientUploadId)).catch(() => undefined);
   }
 
   private find(clientUploadId: string): QueueItem | undefined {
@@ -166,7 +179,7 @@ export class UploadQueue {
     try {
       const result = await this.deps.upload(blob, item.clientUploadId);
       item = this.update(this.find(item.clientUploadId) ?? item, { status: 'sent', blob: null, error: null });
-      void this.deps.store?.remove(item.clientUploadId).catch(() => undefined);
+      this.unpersist(item.clientUploadId);
       this.deps.onSent?.(result, item);
     } catch (err) {
       const error = err instanceof ApiError ? err : new ApiError(0, 'unknown_error', 'Falha ao enviar.');

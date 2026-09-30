@@ -206,4 +206,24 @@ describe('UploadQueue', () => {
     expect(saved).toEqual(['x']);
     expect(removed).toEqual(['x']);
   });
+
+  it('save lento no store: o remove só acontece depois do save (não sobra pendente fantasma)', async () => {
+    const log: string[] = [];
+    const queue = new UploadQueue({
+      upload: async () => ok(),
+      onChange: () => undefined,
+      newId: () => 'x',
+      store: {
+        save: async () => {
+          await new Promise((r) => setTimeout(r, 500));
+          log.push('save');
+        },
+        remove: async () => void log.push('remove'),
+      },
+    });
+    queue.enqueue(blob());
+    await vi.runAllTimersAsync();
+    expect(queue.getItems()[0]?.status).toBe('sent');
+    expect(log).toEqual(['save', 'remove']);
+  });
 });
