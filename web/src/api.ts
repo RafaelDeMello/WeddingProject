@@ -31,6 +31,36 @@ export interface UploadResult {
   duplicate: boolean;
 }
 
+export interface GalleryItem {
+  id: string;
+  guestName: string;
+  /** ISO 8601. */
+  createdAt: string;
+  /** Mesma origem; o cookie de sessão autoriza. */
+  thumbUrl: string;
+  photoUrl: string;
+  /** Foto do próprio convidado. */
+  mine: boolean;
+}
+
+export interface GalleryPage {
+  /** Mais recentes primeiro. */
+  items: GalleryItem[];
+  nextCursor: string | null;
+  /** Relógio do servidor no momento da consulta: o primeiro `since` das atualizações. */
+  serverTime?: string;
+}
+
+export interface GalleryUpdates {
+  added: GalleryItem[];
+  /** Fotos ocultadas pela moderação. */
+  removedIds: string[];
+  /** Próximo `since` (o cliente aplica a sobreposição). */
+  serverTime: string;
+  /** Há mais mudanças: consultar de novo na hora com o novo serverTime. */
+  hasMore: boolean;
+}
+
 export interface Api {
   getEvent(): Promise<EventInfo>;
   createGuest(slug: string, name: string): Promise<GuestSession>;
@@ -38,6 +68,8 @@ export interface Api {
   getMe(): Promise<GuestSession>;
   logout(): Promise<void>;
   uploadPhoto(photo: Blob, clientUploadId: string): Promise<UploadResult>;
+  getGallery(cursor: string | null, limit: number): Promise<GalleryPage>;
+  getGalleryUpdates(since: string): Promise<GalleryUpdates>;
 }
 
 /** Código usado quando a requisição nem chegou a ter resposta (sem rede, timeout). */
@@ -88,19 +120,60 @@ export function isRetryable(err: unknown): boolean {
   return err.status >= 500 && err.status !== 507;
 }
 
-/** Mensagem do 429 conforme a spec, a partir de retryAfterSeconds. */
-export function rateLimitMessage(retryAfterSeconds: number | undefined): string {
-  if (!retryAfterSeconds) return 'Você atingiu o limite, tente novamente em alguns minutos.';
-  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `Você atingiu o limite, tente novamente em ${minutes} min.`;
+/** Códigos de 429 do servidor (server/src/quota.ts e rateLimit.ts). */
+export const TOTAL_QUOTA_EXCEEDED = 'total_quota_exceeded';
+export const QUOTA_EXCEEDED = 'quota_exceeded';
+export const RATE_LIMITED = 'rate_limited';
+
+export const TOTAL_QUOTA_MESSAGE = 'Você já enviou o máximo de fotos.';
+
+function minutesText(retryAfterSeconds: number | undefined): string {
+  if (!retryAfterSeconds) return 'alguns minutos';
+  return `${Math.max(1, Math.ceil(retryAfterSeconds / 60))} min`;
 }
 
-/** Texto amigável para mostrar ao convidado. */
+/** Mensagem da cota por janela, a partir de retryAfterSeconds. */
+export function rateLimitMessage(retryAfterSeconds: number | undefined): string {
+  return `Você atingiu o limite, tente novamente em ${minutesText(retryAfterSeconds)}.`;
+}
+
+export function isTotalQuotaError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 429 && err.code === TOTAL_QUOTA_EXCEEDED;
+}
+
+/** Texto amigável para mostrar ao convidado. Nunca manda procurar os noivos. */
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return GENERIC_MESSAGE;
-  if (err.status === 429) return rateLimitMessage(err.retryAfterSeconds);
   if (err.code === NETWORK_ERROR) return 'Sem conexão. Verifique a internet.';
-  return err.message;
+  switch (err.status) {
+    case 429:
+      // O total não volta a liberar: nunca "tente em X min" (o retryAfter vai até o fim do evento).
+      if (err.code === TOTAL_QUOTA_EXCEEDED) return TOTAL_QUOTA_MESSAGE;
+      if (err.code === RATE_LIMITED) {
+        return `Muitos acessos desta rede agora. Tente novamente em ${minutesText(err.retryAfterSeconds)}.`;
+      }
+      return rateLimitMessage(err.retryAfterSeconds);
+    case 413:
+      return 'A foto é grande demais.';
+    case 415:
+      return 'Formato de imagem não suportado.';
+    case 422:
+      return 'Não foi possível ler essa imagem.';
+    case 507:
+      return 'Não foi possível salvar agora. Tente novamente mais tarde.';
+    default:
+      return err.status >= 500 ? GENERIC_MESSAGE : err.message;
+  }
+}
+
+/**
+ * Oferecer "Tentar de novo" manual? Não quando repetir não tem como dar certo:
+ * total esgotado, arquivo recusado (400/413/415/422) ou sessão/evento (401/403/404).
+ */
+export function canRetryManually(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  if (err.code === NETWORK_ERROR || err.status >= 500) return true;
+  return err.status === 429 && err.code !== TOTAL_QUOTA_EXCEEDED;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -162,27 +235,53 @@ export function createHttpApi(fetchImpl: FetchLike = (input, init) => fetch(inpu
       );
       return { id: body.id, quota: body.quota, duplicate: status === 200 };
     },
+    async getGallery(cursor, limit) {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set('cursor', cursor);
+      return (await request<GalleryPage>(`/api/gallery?${params}`, { method: 'GET' }, JSON_TIMEOUT_MS)).body;
+    },
+    async getGalleryUpdates(since) {
+      const params = new URLSearchParams({ since });
+      const body = (await request<GalleryUpdates>(`/api/gallery/updates?${params}`, { method: 'GET' }, JSON_TIMEOUT_MS))
+        .body;
+      return { ...body, hasMore: body.hasMore === true };
+    },
   };
 }
 
-export type MockMode = 'off' | 'all' | 'photos';
+/** Grupos de endpoints que podem ser simulados. */
+export type MockPart = 'session' | 'photos' | 'gallery';
 
-/** VITE_MOCK_API=true → tudo simulado; =photos → só o upload simulado. */
-export function parseMockMode(value: string | undefined): MockMode {
-  if (value === 'true') return 'all';
-  if (value === 'photos') return 'photos';
-  return 'off';
+/**
+ * VITE_MOCK_API: `true` simula tudo; senão, partes separadas por vírgula
+ * (`photos`, `gallery`, `session`) — o resto vai para a API real.
+ */
+export function parseMockParts(value: string | undefined): ReadonlySet<MockPart> {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (raw === 'true' || raw === 'all') return new Set<MockPart>(['session', 'photos', 'gallery']);
+  const valid: MockPart[] = ['session', 'photos', 'gallery'];
+  return new Set(raw.split(',').map((p) => p.trim()).filter((p): p is MockPart => valid.includes(p as MockPart)));
 }
 
 // Mock só no `vite dev`: o build de produção nunca simula, mesmo com um .env.local esquecido,
 // e o minificador descarta o código do mock (import.meta.env.DEV vira `false`).
-export const mockMode: MockMode = import.meta.env.DEV ? parseMockMode(import.meta.env.VITE_MOCK_API) : 'off';
+export const mockParts: ReadonlySet<MockPart> = import.meta.env.DEV
+  ? parseMockParts(import.meta.env.VITE_MOCK_API)
+  : new Set();
 
-const mock = import.meta.env.DEV && mockMode !== 'off' ? createMockApi() : null;
+const mock = import.meta.env.DEV && mockParts.size > 0 ? createMockApi() : null;
 const http = createHttpApi();
 
-/** Controle do mock (cenário de upload, status do evento); null fora do modo mock. */
+/** Controle do mock (cenários, galeria, status do evento); null fora do modo mock. */
 export const mockControl = mock?.control ?? null;
 
-export const api: Api =
-  mock === null ? http : mockMode === 'all' ? mock.api : { ...http, uploadPhoto: mock.api.uploadPhoto };
+function pick<K extends keyof Api>(part: MockPart, keys: K[]): Pick<Api, K> {
+  const source = mock !== null && mockParts.has(part) ? mock.api : http;
+  return Object.fromEntries(keys.map((k) => [k, source[k]])) as Pick<Api, K>;
+}
+
+export const api: Api = {
+  ...pick('session', ['getEvent', 'createGuest', 'getMe', 'logout']),
+  ...pick('photos', ['uploadPhoto']),
+  ...pick('gallery', ['getGallery', 'getGalleryUpdates']),
+};

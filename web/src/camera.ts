@@ -53,3 +53,20 @@ export function cameraFailureMessage(reason: CameraFailure): string {
       return 'A câmera falhou. Use o botão abaixo.';
   }
 }
+
+/**
+ * Espelhar? Só a câmera frontal. Usa a câmera que o aparelho realmente abriu
+ * (`facingMode` do track), porque `ideal` pode cair na frontal num aparelho sem traseira;
+ * se o aparelho não informar, vale a que foi pedida.
+ * O mesmo valor vale para o preview ao vivo e para a captura: a foto sai igual ao que se viu.
+ */
+export function shouldMirror(requested: Facing, actual: string | undefined): boolean {
+  if (actual === 'user') return true;
+  if (actual === 'environment') return false;
+  return requested === 'user';
+}
+
+export function actualFacing(stream: MediaStream): string | undefined {
+  const track = stream.getVideoTracks()[0];
+  return typeof track?.getSettings === 'function' ? track.getSettings().facingMode : undefined;
+}

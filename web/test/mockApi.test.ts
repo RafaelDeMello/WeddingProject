@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ApiError, NETWORK_ERROR } from '../src/api';
-import { createMockApi } from '../src/mockApi';
+import { MOCK_UPDATES_LIMIT, createMockApi } from '../src/mockApi';
+import { applyPage, drainUpdates, initialGalleryState, sinceWithOverlap } from '../src/gallery';
 
 let clock = 0;
 const photo = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' });
@@ -48,7 +49,7 @@ describe('mockApi', () => {
     await api.uploadPhoto(photo(), 'b');
     await api.uploadPhoto(photo(), 'c');
     const err = await api.uploadPhoto(photo(), 'd').catch((e: unknown) => e);
-    expect(err).toMatchObject({ status: 429, code: 'rate_limited', retryAfterSeconds: 9 * 60 });
+    expect(err).toMatchObject({ status: 429, code: 'quota_exceeded', retryAfterSeconds: 9 * 60 });
     clock += 9 * 60_000 + 1;
     await expect(api.uploadPhoto(photo(), 'd')).resolves.toMatchObject({ duplicate: false });
   });
@@ -76,13 +77,109 @@ describe('mockApi', () => {
 
   it('cenários 429, 403, 500 e sem rede', async () => {
     const { api, control } = setup();
+    control.scenario = 'quota_exceeded';
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'quota_exceeded', retryAfterSeconds: 420 });
+    control.scenario = 'total_quota_exceeded';
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'total_quota_exceeded' });
     control.scenario = 'rate_limited';
-    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, retryAfterSeconds: 420 });
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'rate_limited' });
+    for (const [scenario, status] of [['file_too_large', 413], ['unsupported_media_type', 415], ['invalid_image', 422], ['insufficient_storage', 507]] as const) {
+      control.scenario = scenario;
+      await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status, code: scenario });
+    }
     control.scenario = 'upload_closed';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 403, code: 'upload_closed' });
     control.scenario = 'server_error';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 500 });
     control.scenario = 'network_down';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 0, code: NETWORK_ERROR });
+  });
+});
+
+describe('mockApi: cota total', () => {
+  it('esgotar o total → 429 total_quota_exceeded (não quota_exceeded)', async () => {
+    const { api } = createMockApi({ now: () => clock, delay: async () => undefined, perWindow: 10, total: 2 });
+    await api.uploadPhoto(photo(), 'a');
+    await api.uploadPhoto(photo(), 'b');
+    await expect(api.uploadPhoto(photo(), 'c')).rejects.toMatchObject({ status: 429, code: 'total_quota_exceeded' });
+  });
+});
+
+describe('mockApi: galeria', () => {
+  let t = Date.parse('2026-10-03T22:00:00.000Z');
+  const opts = { now: () => t, delay: async () => undefined };
+
+  async function logged(seed: 'empty' | 'few' | 'many') {
+    const mock = createMockApi({ ...opts, gallerySeed: seed });
+    await mock.api.createGuest('dev123', 'Ana');
+    return mock;
+  }
+
+  it('sem sessão → 401', async () => {
+    const { api } = createMockApi(opts);
+    await expect(api.getGallery(null, 30)).rejects.toMatchObject({ status: 401 });
+    await expect(api.getGalleryUpdates(new Date(t).toISOString())).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('galeria vazia', async () => {
+    const { api } = await logged('empty');
+    await expect(api.getGallery(null, 30)).resolves.toMatchObject({ items: [], nextCursor: null });
+  });
+
+  it('paginação: 95 fotos em páginas de 30, mais recentes primeiro, sem repetir', async () => {
+    const { api } = await logged('many');
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const page = await api.getGallery(cursor, 30);
+      seen.push(...page.items.map((i) => i.id));
+      const times = page.items.map((i) => Date.parse(i.createdAt));
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+      cursor = page.nextCursor;
+      pages++;
+    } while (cursor);
+    expect(pages).toBe(4);
+    expect(new Set(seen).size).toBe(95);
+  });
+
+  it('itens com thumbUrl/photoUrl e mine só para as fotos do convidado', async () => {
+    const { api } = await logged('few');
+    await api.uploadPhoto(photo(), 'minha');
+    const { items } = await api.getGallery(null, 30);
+    expect(items).toHaveLength(13);
+    expect(items.filter((i) => i.mine).map((i) => i.guestName)).toEqual(['Ana']);
+    // Fotos dos outros: SVG em data: (a CSP permite); as do convidado usam a própria imagem enviada.
+    expect(items.find((i) => !i.mine)!.thumbUrl).toMatch(/^data:image\/svg\+xml/);
+  });
+
+  it('updates: added, removedIds (moderação), reexibida volta como added', async () => {
+    const mock = await logged('few');
+    const first = await mock.api.getGallery(null, 30);
+    const since = first.serverTime!;
+    t += 1000;
+    mock.control.addOthers(1);
+    const hidden = mock.control.hideNewest(first.items[0]!.id);
+    t += 1000;
+    const u1 = await mock.api.getGalleryUpdates(since);
+    expect(u1.added).toHaveLength(1);
+    expect(u1.removedIds).toEqual([hidden]);
+    expect(u1.hasMore).toBe(false);
+    t += 1000;
+    mock.control.unhideLast();
+    const u2 = await mock.api.getGalleryUpdates(u1.serverTime);
+    expect(u2.added.map((i) => i.id)).toEqual([hidden]);
+  });
+
+  it('rajada acima do limite: hasMore, e o cliente (drainUpdates) recebe todas sem travar', async () => {
+    const mock = await logged('empty');
+    let state = applyPage(initialGalleryState(), await mock.api.getGallery(null, 30), '2026-10-03T00:00:00.000Z');
+    t += 1000;
+    mock.control.addOthers(45);
+    const u = await mock.api.getGalleryUpdates(sinceWithOverlap(state.lastServerTime!));
+    expect(u.added).toHaveLength(MOCK_UPDATES_LIMIT);
+    expect(u.hasMore).toBe(true);
+    state = await drainUpdates(state, (since) => mock.api.getGalleryUpdates(since));
+    expect(state.items).toHaveLength(45);
   });
 });

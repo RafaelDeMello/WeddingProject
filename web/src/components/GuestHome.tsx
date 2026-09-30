@@ -1,53 +1,97 @@
-import { useEffect, useRef, useState } from 'react';
-import { api, errorMessage, isRetryable, rateLimitMessage, type ApiError, type GuestSession, type Quota } from '../api';
-import { clearPending, loadPending, pendingStoreFor } from '../pendingStore';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  api,
+  errorMessage,
+  isRetryable,
+  isTotalQuotaError,
+  type ApiError,
+  type GuestSession,
+  type Quota,
+  type UploadResult,
+} from '../api';
+import { mergeGrid, nextOpenKey, type LocalPhoto } from '../gallery';
+import { clearPending, idbPendingStorage, pendingStoreFor, restorePending } from '../pendingStore';
+import { quotaView } from '../quota';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
+import { useGallery } from '../useGallery';
 import { CameraView } from './CameraView';
+import { FailedSheet } from './FailedSheet';
+import { GalleryScreen } from './GalleryScreen';
 import { PhotoPreview } from './PhotoPreview';
-import { UploadList } from './UploadList';
+import { PhotoViewer } from './PhotoViewer';
 
 interface Props {
   session: GuestSession;
+  eventName: string;
+  /** Abertura do evento: primeiro `since` da galeria se o servidor não mandar serverTime. */
+  eventOpensAt: string;
   onLoggedOut(): void;
   /** Sessão perdida (401) ou evento encerrado (403): o App recarrega o estado. */
   onSessionError(error: ApiError): void;
 }
+
+type Screen = 'gallery' | 'camera';
 
 function secondsUntil(iso: string | null): number | undefined {
   if (!iso) return undefined;
   return Math.max(1, Math.ceil((Date.parse(iso) - Date.now()) / 1000));
 }
 
-export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSessionError }: Props) {
+  const [screen, setScreen] = useState<Screen>('gallery');
   const [quota, setQuota] = useState<Quota>(session.quota);
   const [items, setItems] = useState<readonly QueueItem[]>([]);
   const [captured, setCaptured] = useState<Blob | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
-  // "Foto enviada ✓" por ~2 s a cada envio concluído (a tela já voltou para a câmera).
+  const [sentCount, setSentCount] = useState(0);
+  // clientUploadId → id no servidor, para trocar a foto local pelo item real da galeria.
+  const [serverIds, setServerIds] = useState<ReadonlyMap<string, string>>(new Map());
+  const [viewerKey, setViewerKey] = useState<string | null>(null);
+  const [viewerRemoved, setViewerRemoved] = useState(false);
+  const [failedSheetId, setFailedSheetId] = useState<string | null>(null);
+  const [attentionKey, setAttentionKey] = useState<string | null>(null);
+  // "Foto enviada ✓" por ~2 s a cada envio concluído (a tela já voltou para a galeria).
   const [toastKey, setToastKey] = useState(0);
   const [toastVisible, setToastVisible] = useState(false);
 
   // Callbacks da fila leem sempre a versão atual das props.
   const onSessionErrorRef = useRef(onSessionError);
   onSessionErrorRef.current = onSessionError;
+  const refreshGalleryRef = useRef<() => void>(() => undefined);
 
   const [queue] = useState(
     () =>
       new UploadQueue({
         upload: (photo, id) => api.uploadPhoto(photo, id),
         onChange: setItems,
-        onSent: (result) => {
+        onSent: (result: UploadResult, item: QueueItem) => {
           setQuota(result.quota);
+          setServerIds((m) => new Map(m).set(item.clientUploadId, result.id));
+          setSentCount((n) => n + 1);
           setToastKey((k) => k + 1);
+          // O item real entra na galeria logo, sem esperar os 15 s.
+          refreshGalleryRef.current();
         },
-        store: pendingStoreFor(session.guestId),
+        store: pendingStoreFor(idbPendingStorage, session.guestId),
         onFailed: (error) => {
           if (error.status === 401 || error.code === 'upload_closed') onSessionErrorRef.current(error);
-          else if (error.status === 429) setNotice(rateLimitMessage(error.retryAfterSeconds));
+          // Total esgotado: zera a cota local, e a tela mostra "já enviou o máximo" (nunca "tente em X min").
+          else if (isTotalQuotaError(error)) setQuota((q) => ({ ...q, remainingInWindow: 0, remainingTotal: 0 }));
+          else if (error.status === 429) setNotice(errorMessage(error));
         },
       }),
   );
+
+  const gallery = useGallery({
+    fallbackSince: eventOpensAt,
+    onUnauthorized: (err) => onSessionErrorRef.current(err),
+  });
+  refreshGalleryRef.current = gallery.refresh;
 
   useEffect(() => () => queue.dispose(), [queue]);
 
@@ -58,15 +102,10 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     return () => clearTimeout(timer);
   }, [toastKey]);
 
-  // Reabriu a página: reenvia o que ficou pendente (mesmo clientUploadId → o servidor não duplica).
+  // Reabriu a página ou a sessão anterior caiu (401): reenvia as pendentes por esta sessão.
+  // restore ignora ids já na fila, então rodar duas vezes (StrictMode) não duplica.
   useEffect(() => {
-    let cancelled = false;
-    void loadPending(session.guestId).then((records) => {
-      if (!cancelled) records.forEach((record) => queue.restore(record));
-    });
-    return () => {
-      cancelled = true;
-    };
+    void restorePending(idbPendingStorage, session.guestId, queue);
   }, [queue, session.guestId]);
 
   // Voltou a internet: reenvia na hora o que falhou por rede.
@@ -98,19 +137,82 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     return () => clearTimeout(timer);
   }, [quota.resetsAt]);
 
-  const pending = items.filter((i) => i.status !== 'sent' && i.status !== 'failed').length;
-  const remaining = Math.max(0, quota.remainingInWindow - pending);
-  const limitReached = remaining <= 0;
-  const limitMessage =
-    quota.remainingTotal - pending <= 0
-      ? 'Você já enviou o máximo de fotos. Muito obrigado!'
-      : rateLimitMessage(secondsUntil(quota.resetsAt));
+  // Object URLs das fotos locais (criados uma vez por foto, liberados quando o item real chega).
+  const urls = useRef(new Map<string, string>());
+  useEffect(() => {
+    const map = urls.current;
+    return () => {
+      for (const url of map.values()) URL.revokeObjectURL(url);
+      map.clear();
+    };
+  }, []);
+
+  const locals: LocalPhoto[] = items.flatMap((item) => {
+    let url = urls.current.get(item.clientUploadId);
+    if (!url && item.blob) {
+      url = URL.createObjectURL(item.blob);
+      urls.current.set(item.clientUploadId, url);
+    }
+    if (!url) return [];
+    return [
+      {
+        clientUploadId: item.clientUploadId,
+        url,
+        createdAt: item.createdAt,
+        status: item.status,
+        error: item.error,
+        serverId: serverIds.get(item.clientUploadId) ?? null,
+      },
+    ];
+  });
+
+  const { entries, superseded } = mergeGrid(gallery.state.items, locals, gallery.state.removed);
+
+  // O item real chegou (ou a moderação removeu): a foto local sai sem duplicar.
+  const supersededKey = superseded.join(',');
+  useEffect(() => {
+    if (!supersededKey) return;
+    for (const id of supersededKey.split(',')) {
+      const url = urls.current.get(id);
+      if (url) URL.revokeObjectURL(url);
+      urls.current.delete(id);
+      queue.forget(id);
+    }
+  }, [supersededKey, queue]);
+
+  // Visualizador aberto numa foto que sumiu (moderação): segue para a vizinha ou fecha.
+  const lastViewerIndex = useRef(0);
+  useEffect(() => {
+    if (viewerKey === null) return;
+    const index = entries.findIndex((e) => e.key === viewerKey);
+    if (index >= 0) {
+      lastViewerIndex.current = index;
+      return;
+    }
+    // Sua foto local virou o item real da galeria: continua nela, sem aviso.
+    const serverId = viewerKey.startsWith('local-') ? serverIds.get(viewerKey.slice('local-'.length)) : undefined;
+    if (serverId && entries.some((e) => e.key === `srv-${serverId}`)) {
+      setViewerKey(`srv-${serverId}`);
+      return;
+    }
+    const replacement = nextOpenKey(entries, viewerKey, lastViewerIndex.current);
+    setViewerKey(replacement);
+    setViewerRemoved(replacement !== null);
+    if (replacement === null) setNotice('A foto que você via não está mais disponível.');
+  }, [entries, viewerKey, serverIds]);
+
+  const pending = items.filter((i) => i.status === 'queued' || i.status === 'sending' || i.status === 'waiting_retry').length;
+  const failedItems = items.filter((i) => i.status === 'failed');
+  const { available, suffix, limitMessage } = quotaView(quota, pending, Date.now());
+  const limitReached = limitMessage !== null;
 
   function send() {
     if (!captured) return;
     queue.enqueue(captured);
     setCaptured(null);
     setNotice(null);
+    setScreen('gallery');
+    window.scrollTo({ top: 0 });
   }
 
   async function logout() {
@@ -125,7 +227,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     try {
       await api.logout();
       queue.dispose();
-      await clearPending(session.guestId);
+      await clearPending(idbPendingStorage, session.guestId);
       onLoggedOut();
     } catch (err) {
       // Sem apagar o cookie, a próxima pessoa entraria com a sessão desta.
@@ -134,76 +236,171 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     }
   }
 
-  const failed = items.filter((i) => i.status === 'failed').length;
-  const sent = items.filter((i) => i.status === 'sent').length;
+  // Pílula de status: leva à primeira foto com falha (ou às que estão subindo).
+  // Rolar/focar depois que a galeria renderizar (vindo da câmera, ela ainda não existe no clique).
+  const [scrollRequest, setScrollRequest] = useState<{ key: string | null; n: number } | null>(null);
+  const goToStatus = useCallback(() => {
+    setScreen('gallery');
+    const target = failedItems[0] ?? items.find((i) => i.status !== 'sent');
+    const key = target ? `local-${target.clientUploadId}` : null;
+    setAttentionKey(key);
+    setScrollRequest((r) => ({ key, n: (r?.n ?? 0) + 1 }));
+  }, [failedItems, items]);
+
+  useEffect(() => {
+    if (!scrollRequest) return;
+    const el = scrollRequest.key ? document.getElementById(`tile-${scrollRequest.key}`) : null;
+    if (el) {
+      el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+      el.focus({ preventScroll: true });
+    } else {
+      window.scrollTo({ top: 0 });
+    }
+  }, [scrollRequest]);
+
+  useEffect(() => {
+    if (!attentionKey) return;
+    const timer = setTimeout(() => setAttentionKey(null), 2500);
+    return () => clearTimeout(timer);
+  }, [attentionKey]);
+
   const statusParts = [
     pending > 0 ? `${pending} enviando` : null,
-    failed > 0 ? `${failed} ${failed === 1 ? 'falhou' : 'falharam'}` : null,
+    failedItems.length > 0 ? `${failedItems.length} ${failedItems.length === 1 ? 'falhou' : 'falharam'}` : null,
   ].filter(Boolean);
   const statusText =
-    statusParts.length > 0 ? statusParts.join(' · ') : sent > 0 ? `${sent} ${sent === 1 ? 'enviada' : 'enviadas'} ✓` : null;
+    statusParts.length > 0
+      ? statusParts.join(' · ')
+      : sentCount > 0
+        ? `${sentCount} ${sentCount === 1 ? 'enviada' : 'enviadas'} ✓`
+        : null;
 
-  const topBar = (
-    <div className="topbar">
-      <div className="topbar-row">
-        <span className="greeting">
-          Olá, <strong>{session.name}</strong>
-        </span>
-        <button type="button" className="link" onClick={logout} disabled={loggingOut}>
-          Não é você?
-        </button>
-      </div>
-      {limitReached ? (
-        <p className="banner">{limitMessage}</p>
-      ) : (
-        <p className="pill pill-quota">
-          <span className="num">{remaining}</span> {remaining === 1 ? 'foto restante' : 'fotos restantes'}
-        </p>
-      )}
-      {notice && !limitReached && <p className="banner">{notice}</p>}
-    </div>
-  );
-
-  // Toque na pílula leva à lista de envios, abaixo da câmera.
   const statusPill = statusText && (
     <button
       type="button"
-      className={failed > 0 ? 'pill pill-status pill-status-failed' : 'pill pill-status'}
-      onClick={() =>
-        document.getElementById('envios')?.scrollIntoView({
-          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        })
-      }
+      className={failedItems.length > 0 ? 'pill pill-status pill-status-failed' : 'pill pill-status'}
+      onClick={goToStatus}
     >
       {statusText}
     </button>
   );
 
+  const quotaNode = limitReached ? (
+    <p className="banner">{limitMessage}</p>
+  ) : (
+    <p className="pill pill-quota">
+      <span className="num">{available}</span> {suffix}
+    </p>
+  );
+
+  const cameraTopBar = (
+    <div className="topbar">
+      <div className="topbar-row">
+        <button type="button" className="link" onClick={() => setScreen('gallery')}>
+          ← Galeria
+        </button>
+        <span className="greeting">
+          Olá, <strong>{session.name}</strong>
+        </span>
+      </div>
+      {quotaNode}
+      {notice && !limitReached && <p className="banner">{notice}</p>}
+    </div>
+  );
+
+  const failedItem = failedSheetId ? items.find((i) => i.clientUploadId === failedSheetId) : undefined;
+
+  const openViewer = useCallback((key: string) => {
+    setViewerRemoved(false);
+    setViewerKey(key);
+  }, []);
+  const closeViewer = useCallback(() => {
+    setViewerKey(null);
+    setViewerRemoved(false);
+  }, []);
+  const navigateViewer = useCallback((key: string) => {
+    setViewerRemoved(false);
+    setViewerKey(key);
+  }, []);
+
   return (
-    <main className="guest-home">
-      <CameraView
-        disabled={limitReached || captured !== null}
-        hidden={captured !== null}
-        onCapture={setCaptured}
-        topBar={topBar}
-        statusPill={statusPill}
-      />
+    <>
+      {screen === 'gallery' ? (
+        <GalleryScreen
+          eventName={eventName}
+          guestName={session.name}
+          loggingOut={loggingOut}
+          onLogout={logout}
+          entries={entries}
+          firstPageLoaded={gallery.state.firstPageLoaded}
+          hasMorePages={!gallery.state.firstPageLoaded || gallery.state.nextCursor !== null}
+          loadingPage={gallery.loadingPage}
+          loadError={gallery.error}
+          onLoadMore={gallery.loadMore}
+          onRetryLoad={gallery.retry}
+          onOpen={openViewer}
+          onFailedTap={setFailedSheetId}
+          attentionKey={attentionKey}
+          quota={quotaNode}
+          statusPill={statusPill}
+          notice={notice}
+          takeDisabled={limitReached}
+          onTakePhoto={() => {
+            setNotice(null);
+            setScreen('camera');
+          }}
+        />
+      ) : (
+        // A câmera só existe nesta tela: ao voltar para a galeria ela é desligada.
+        <main className="guest-home">
+          <CameraView
+            disabled={limitReached || captured !== null}
+            hidden={captured !== null}
+            onCapture={setCaptured}
+            topBar={cameraTopBar}
+            statusPill={statusPill}
+          />
+        </main>
+      )}
+
       {captured && <PhotoPreview photo={captured} onSend={send} onRetake={() => setCaptured(null)} />}
+
+      {viewerKey && (
+        <PhotoViewer
+          entries={entries}
+          openKey={viewerKey}
+          myName={session.name}
+          removedNotice={viewerRemoved}
+          onNavigate={navigateViewer}
+          onClose={closeViewer}
+        />
+      )}
+
+      {failedItem && (
+        <FailedSheet
+          url={urls.current.get(failedItem.clientUploadId) ?? null}
+          error={failedItem.error}
+          onRetry={() => {
+            setNotice(null);
+            queue.retry(failedItem.clientUploadId);
+            setFailedSheetId(null);
+          }}
+          onDiscard={() => {
+            const url = urls.current.get(failedItem.clientUploadId);
+            if (url) URL.revokeObjectURL(url);
+            urls.current.delete(failedItem.clientUploadId);
+            queue.discard(failedItem.clientUploadId);
+            setFailedSheetId(null);
+          }}
+          onClose={() => setFailedSheetId(null)}
+        />
+      )}
 
       {toastVisible && (
         <p key={toastKey} className="toast" role="status">
           Foto enviada ✓
         </p>
       )}
-
-      <UploadList
-        items={items}
-        onRetry={(id) => {
-          setNotice(null);
-          queue.retry(id);
-        }}
-        onDiscard={(id) => queue.discard(id)}
-      />
-    </main>
+    </>
   );
 }

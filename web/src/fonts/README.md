@@ -5,7 +5,7 @@ Arquivos `.woff2` (subset latin) do [Fontsource](https://fontsource.org), versã
 
 | Família | Pesos | Uso |
 |---|---|---|
-| Cormorant Garamond | 500, 600 | títulos e números |
+| Cormorant Garamond | 600 | títulos e números |
 | Great Vibes | 400 | títulos decorativos curtos (nome do evento, "Obrigado!") |
 | Inter | 400, 500, 600 | textos, botões e instruções |
 

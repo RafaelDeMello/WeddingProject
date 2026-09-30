@@ -10,7 +10,7 @@ export function fitWithin(width: number, height: number, max = MAX_SIDE): { widt
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-function drawToJpeg(source: CanvasImageSource, width: number, height: number): Promise<Blob> {
+function drawToJpeg(source: CanvasImageSource, width: number, height: number, mirror = false): Promise<Blob> {
   const size = fitWithin(width, height);
   const canvas = document.createElement('canvas');
   canvas.width = size.width;
@@ -18,6 +18,11 @@ function drawToJpeg(source: CanvasImageSource, width: number, height: number): P
   const ctx = canvas.getContext('2d');
   if (!ctx) return Promise.reject(new Error('Canvas indisponível.'));
   ctx.imageSmoothingQuality = 'high';
+  if (mirror) {
+    // Câmera frontal: a foto sai espelhada como o preview ao vivo.
+    ctx.translate(size.width, 0);
+    ctx.scale(-1, 1);
+  }
   ctx.drawImage(source, 0, 0, size.width, size.height);
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -34,10 +39,10 @@ function drawToJpeg(source: CanvasImageSource, width: number, height: number): P
   });
 }
 
-/** Captura o quadro atual do vídeo da câmera. */
-export function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+/** Captura o quadro atual do vídeo da câmera; `mirror` só para a frontal (ver shouldMirror). */
+export function captureVideoFrame(video: HTMLVideoElement, mirror = false): Promise<Blob> {
   if (!video.videoWidth || !video.videoHeight) return Promise.reject(new Error('A câmera ainda não está pronta.'));
-  return drawToJpeg(video, video.videoWidth, video.videoHeight);
+  return drawToJpeg(video, video.videoWidth, video.videoHeight, mirror);
 }
 
 /** Comprime o arquivo do fallback. O <img> já aplica a orientação EXIF nos navegadores atuais. */
