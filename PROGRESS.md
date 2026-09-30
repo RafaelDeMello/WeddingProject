@@ -505,3 +505,46 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Front — ajustes e galeria compartilhada (branch feat/web-ajustes)
+
+**Ferramenta/modelo:** Claude Code (Opus 5.5)
+**Status:** concluída no front; aguardando endpoints da galeria e teste em aparelho real
+
+### O que foi feito
+- build.target até iOS 14/Safari 14 (padrão do Vite 8 era iOS 16.4).
+- uuidv4 com fallback em getRandomValues (randomUUID só no iOS 15.4+).
+- Câmera frontal: foto sai espelhada como o preview; decisão pela câmera realmente aberta (facingMode do track). Traseira nunca espelha.
+- Nome com maxLength 40.
+- Erros por código: 429 total_quota_exceeded → "Você já enviou o máximo de fotos." (nunca minutos); quota_exceeded/rate_limited com minutos; 413/415/422/507 com textos próprios; "Tentar de novo" manual só onde pode dar certo. Nunca orienta a procurar os noivos.
+- Pendentes no IndexedDB de uma sessão que caiu (401) são reenviadas pela sessão nova, mesmo clientUploadId.
+- Cota: "N fotos disponíveis agora"; "N fotos restantes" quando o limite total restringe.
+- Cormorant Garamond 500 removido.
+- Galeria como tela principal: grade com rolagem infinita, visualizador com navegação, polling de /updates a cada 15 s (pausado com a aba oculta, imediato após envio), hasMore consultado na hora, moderação em tempo real, fotos próprias na hora com selo de status e trocadas pelo item real sem duplicar, pílula de status que leva às fotos com falha. Lista de envios removida.
+- VITE_MOCK_API com partes separadas por vírgula (session, photos, gallery); mock da galeria com vazia/12/95 fotos, chegada, rajada (hasMore), moderação e reexibição.
+
+### Decisões tomadas
+- since = último serverTime − 30 s em toda consulta, dedup por id; o corte nunca retrocede. Se uma resposta com hasMore não traz nada novo, a seguinte usa o serverTime exato (senão a paginação trava com mais mudanças que o limite dentro de 30 s).
+- Primeiro since: serverTime de GET /api/gallery; sem ele, createdAt mais recente ou abertura do evento.
+- Câmera fecha ao voltar para a galeria; se o iPhone pedir permissão a cada vez, manter aberta.
+
+### Desvios da especificação
+- Lista de envios substituída por selos nas miniaturas (aprovado).
+
+### Testes
+- web: 122 passando (lógica pura em node). server: 174 passando.
+- Manual (navegador embutido, mock): fluxo completo, espelhamento por pixel, paginação 95, rajada 45, moderação com foto aberta, falha → pílula → folha de ações.
+
+### Pendências
+- Integrar com os endpoints reais da galeria.
+- Testar em iPhone (Safari, incluindo iOS < 15.4 se possível) e Android (Chrome): câmera, permissão ao reabrir a câmera, espelhamento.
+- ~~Backend: serverTime em GET /api/gallery, hasMore, reexibida como added (filtro pela mudança de visibilidade) e desempate no corte do hasMore.~~ **Entregue no item 1 da Fase 4** (commits `5b2e56f`, `b02d661` e `555d470`): `serverTime` em `GET /api/gallery`, `hasMore` e teto de 200 em `/updates`, reexibida em `added` (via `visibilityChangedAt`) e fotos empatadas no corte vindo juntas. Falta só o front integrar com os endpoints reais.
+
+### Bugs relacionados
+- Nenhum.
+
+### Verificação pós-merge (PR #2, `046d836`) — registrada pelo Claude Code (Sonnet 5.5)
+- Código combinado (`main` = `046d836`): typecheck limpo; `npm test` da raiz com **236 testes no server e 122 no web, todos passando**; `npm run build` limpo.
+- CSP contra o build novo: a suíte `spa.test.ts` (que faz um `vite build` real) passou; o build não tem script/estilo/handler inline, o CSS só referencia fontes da própria origem e `data:image`, não há `eval` nem `new Function`, e nada do mock vai para o bundle de produção.
