@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { mockControl, mockParts, type EventStatus } from '../api';
-import { GALLERY_SEEDS, UPLOAD_SCENARIOS, type GallerySeed, type UploadScenario } from '../mockApi';
+import {
+  DELETE_SCENARIOS,
+  GALLERY_SEEDS,
+  UPLOAD_SCENARIOS,
+  type DeleteScenario,
+  type GallerySeed,
+  type UploadScenario,
+} from '../mockApi';
 import { MOCK_REFRESH_EVENT } from '../useGallery';
 
 interface Props {
@@ -17,6 +24,7 @@ export function MockPanel({ onEventStatusChange }: Props) {
   const [scenario, setScenario] = useState<UploadScenario>(mockControl?.scenario ?? 'success');
   const [status, setStatus] = useState<EventStatus>(mockControl?.eventStatus ?? 'open');
   const [seed, setSeed] = useState<GallerySeed>('few');
+  const [deleteScenario, setDeleteScenario] = useState<DeleteScenario>(mockControl?.deleteScenario ?? 'success');
   const [last, setLast] = useState<string | null>(null);
   if (!mockControl) return null;
   const control = mockControl;
@@ -76,6 +84,23 @@ export function MockPanel({ onEventStatusChange }: Props) {
               }}
             >
               {GALLERY_SEEDS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Apagar minha foto
+            <select
+              value={deleteScenario}
+              onChange={(e) => {
+                const value = e.target.value as DeleteScenario;
+                control.deleteScenario = value;
+                setDeleteScenario(value);
+              }}
+            >
+              {DELETE_SCENARIOS.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>

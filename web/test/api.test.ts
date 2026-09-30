@@ -249,3 +249,20 @@ describe('createHttpApi: galeria', () => {
     expect(updates.hasMore).toBe(false);
   });
 });
+
+describe('createHttpApi: apagar foto', () => {
+  it('DELETE /api/gallery/photos/:id; 204 sem corpo resolve', async () => {
+    const calls: { url: string; method?: string }[] = [];
+    const api = createHttpApi(async (url, init) => {
+      calls.push({ url, method: init?.method });
+      return new Response(null, { status: 204 });
+    });
+    await expect(api.deletePhoto('a/b')).resolves.toBeUndefined();
+    expect(calls).toEqual([{ url: '/api/gallery/photos/a%2Fb', method: 'DELETE' }]);
+  });
+
+  it('404 vira ApiError not_found', async () => {
+    const api = createHttpApi(async () => jsonResponse(404, { error: { code: 'not_found', message: 'Foto não encontrada.' } }));
+    await expect(api.deletePhoto('x')).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+});

@@ -70,6 +70,8 @@ export interface Api {
   uploadPhoto(photo: Blob, clientUploadId: string): Promise<UploadResult>;
   getGallery(cursor: string | null, limit: number): Promise<GalleryPage>;
   getGalleryUpdates(since: string): Promise<GalleryUpdates>;
+  /** Apaga uma foto do próprio convidado (204, também se já estava apagada; 404 se não é sua ou não existe). */
+  deletePhoto(id: string): Promise<void>;
 }
 
 /** Código usado quando a requisição nem chegou a ter resposta (sem rede, timeout). */
@@ -246,6 +248,9 @@ export function createHttpApi(fetchImpl: FetchLike = (input, init) => fetch(inpu
         .body;
       return { ...body, hasMore: body.hasMore === true };
     },
+    async deletePhoto(id) {
+      await request(`/api/gallery/photos/${encodeURIComponent(id)}`, { method: 'DELETE' }, JSON_TIMEOUT_MS);
+    },
   };
 }
 
@@ -283,5 +288,5 @@ function pick<K extends keyof Api>(part: MockPart, keys: K[]): Pick<Api, K> {
 export const api: Api = {
   ...pick('session', ['getEvent', 'createGuest', 'getMe', 'logout']),
   ...pick('photos', ['uploadPhoto']),
-  ...pick('gallery', ['getGallery', 'getGalleryUpdates']),
+  ...pick('gallery', ['getGallery', 'getGalleryUpdates', 'deletePhoto']),
 };

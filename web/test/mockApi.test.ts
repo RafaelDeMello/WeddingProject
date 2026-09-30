@@ -183,3 +183,44 @@ describe('mockApi: galeria', () => {
     expect(state.items).toHaveLength(45);
   });
 });
+
+describe('mockApi: apagar minha foto', () => {
+  let t = Date.parse('2026-10-03T22:00:00.000Z');
+  const opts = { now: () => t, delay: async () => undefined, gallerySeed: 'few' as const };
+
+  it('204 na própria foto: some para os outros via removedIds, e a cota não devolve a vaga', async () => {
+    const mock = createMockApi(opts);
+    await mock.api.createGuest('dev123', 'Ana');
+    const sent = await mock.api.uploadPhoto(photo(), 'x');
+    const since = new Date(t).toISOString();
+    t += 1000;
+    await expect(mock.api.deletePhoto(sent.id)).resolves.toBeUndefined();
+    // De novo: 204 (idempotente).
+    await expect(mock.api.deletePhoto(sent.id)).resolves.toBeUndefined();
+    const updates = await mock.api.getGalleryUpdates(since);
+    expect(updates.removedIds).toEqual([sent.id]);
+    expect((await mock.api.getGallery(null, 30)).items.map((i) => i.id)).not.toContain(sent.id);
+    expect((await mock.api.getMe()).quota).toEqual(sent.quota);
+  });
+
+  it('404 para foto de outra pessoa ou inexistente; 401 sem sessão', async () => {
+    const mock = createMockApi(opts);
+    await expect(mock.api.deletePhoto('x')).rejects.toMatchObject({ status: 401 });
+    await mock.api.createGuest('dev123', 'Ana');
+    const deOutro = (await mock.api.getGallery(null, 30)).items.find((i) => !i.mine)!;
+    await expect(mock.api.deletePhoto(deOutro.id)).rejects.toMatchObject({ status: 404 });
+    await expect(mock.api.deletePhoto('nao-existe')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('cenários 404 e sem rede', async () => {
+    const mock = createMockApi(opts);
+    await mock.api.createGuest('dev123', 'Ana');
+    const sent = await mock.api.uploadPhoto(photo(), 'x');
+    mock.control.deleteScenario = 'not_found';
+    await expect(mock.api.deletePhoto(sent.id)).rejects.toMatchObject({ status: 404 });
+    mock.control.deleteScenario = 'network_down';
+    await expect(mock.api.deletePhoto(sent.id)).rejects.toMatchObject({ code: NETWORK_ERROR });
+    // A foto continua lá: nenhum dos dois apagou.
+    expect((await mock.api.getGallery(null, 30)).items.map((i) => i.id)).toContain(sent.id);
+  });
+});

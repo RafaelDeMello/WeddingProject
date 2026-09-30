@@ -43,6 +43,14 @@ export const UPLOAD_SCENARIOS: { value: UploadScenario; label: string }[] = [
   { value: 'upload_closed', label: 'Encerrado (403)' },
 ];
 
+export type DeleteScenario = 'success' | 'not_found' | 'network_down';
+
+export const DELETE_SCENARIOS: { value: DeleteScenario; label: string }[] = [
+  { value: 'success', label: 'Sucesso (204)' },
+  { value: 'not_found', label: 'Não encontrada (404)' },
+  { value: 'network_down', label: 'Sem rede' },
+];
+
 export type GallerySeed = 'empty' | 'few' | 'many';
 
 export const GALLERY_SEEDS: { value: GallerySeed; label: string; count: number }[] = [
@@ -78,6 +86,8 @@ export interface MockControl {
   hideNewest(id?: string): string | null;
   /** Moderação: reexibe a última ocultada. */
   unhideLast(): string | null;
+  /** Resultado do "Apagar minha foto". */
+  deleteScenario: DeleteScenario;
 }
 
 interface MockPhoto {
@@ -193,6 +203,7 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
     scenario: 'success',
     eventStatus: 'open',
     uploadCalls: 0,
+    deleteScenario: 'success',
     seedGallery(seed) {
       const count = GALLERY_SEEDS.find((s) => s.value === seed)?.count ?? 0;
       const at = now();
@@ -361,6 +372,22 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
         serverTime: new Date(hasMore ? batch[batch.length - 1]!.changedAt : now()).toISOString(),
         hasMore,
       };
+    },
+
+    async deletePhoto(id) {
+      await delay(latencyMs);
+      requireSession();
+      if (control.deleteScenario === 'network_down') throw networkError();
+      const notFound = () => new ApiError(404, 'not_found', 'Foto não encontrada.');
+      if (control.deleteScenario === 'not_found') throw notFound();
+      const target = gallery.find((p) => p.id === id);
+      // De outra pessoa ou inexistente: 404 (não revela que existe).
+      if (!target || target.ownerId !== owner()) throw notFound();
+      // Já apagada: 204 de novo (idempotente). A cota não devolve a vaga.
+      if (target.hiddenAt === null) {
+        target.hiddenAt = now();
+        target.changedAt = now();
+      }
     },
   };
 

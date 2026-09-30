@@ -6,10 +6,12 @@ interface Props {
   openKey: string;
   /** Nome do convidado atual (para as fotos locais, que ainda não têm guestName do servidor). */
   myName: string;
-  /** A foto aberta sumiu (moderação) e o visualizador pulou para outra. */
-  removedNotice: boolean;
+  /** Aviso no rodapé (ex.: a foto aberta foi removida pela moderação e ele pulou para outra). */
+  notice: string | null;
   onNavigate(key: string): void;
   onClose(): void;
+  /** "Apagar minha foto": só aparece nas fotos do convidado já enviadas. */
+  onDelete(entry: GridEntry): void;
 }
 
 const timeFormat = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -30,7 +32,12 @@ function describe(entry: GridEntry, myName: string) {
   return { photo: local.url, thumb: local.url, name: myName, time: timeFormat.format(local.createdAt), mine: true };
 }
 
-export function PhotoViewer({ entries, openKey, myName, removedNotice, onNavigate, onClose }: Props) {
+/** Dá para apagar: foto sua no servidor, ou local já enviada (id no servidor conhecido). */
+function canDelete(entry: GridEntry): boolean {
+  return entry.kind === 'server' ? entry.item.mine : entry.local.status === 'sent' && entry.local.serverId !== null;
+}
+
+export function PhotoViewer({ entries, openKey, myName, notice, onNavigate, onClose, onDelete }: Props) {
   const index = entries.findIndex((e) => e.key === openKey);
   const entry = entries[index];
   const prev = index > 0 ? entries[index - 1] : undefined;
@@ -110,13 +117,18 @@ export function PhotoViewer({ entries, openKey, myName, removedNotice, onNavigat
       </div>
 
       <div className="viewer-caption">
-        {removedNotice && (
+        {notice && (
           <p className="viewer-notice" role="status">
-            A foto que você via não está mais disponível.
+            {notice}
           </p>
         )}
         <p className="viewer-name">{info.mine ? `${info.name} (você)` : info.name}</p>
         <p className="viewer-time">{info.time}</p>
+        {canDelete(entry) && (
+          <button type="button" className="viewer-delete" onClick={() => onDelete(entry)}>
+            Apagar minha foto
+          </button>
+        )}
       </div>
     </div>
   );

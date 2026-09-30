@@ -5,8 +5,12 @@ import {
   PAGE_SIZE,
   POLL_INTERVAL_MS,
   applyPage,
+  beginDelete,
+  deleteOutcome,
   drainUpdatesInto,
+  finishDelete,
   initialGalleryState,
+  type DeleteOutcome,
   type GalleryState,
 } from './gallery';
 
@@ -28,6 +32,8 @@ export interface GalleryHandle {
   /** Consulta updates agora (ex.: logo depois de um envio). */
   refresh(): void;
   retry(): void;
+  /** Apaga uma foto do convidado: some na hora; volta se falhar (404 conta como apagada). */
+  deletePhoto(id: string): Promise<{ outcome: DeleteOutcome; error: unknown }>;
 }
 
 export function useGallery({ fallbackSince, onUnauthorized }: Options): GalleryHandle {
@@ -65,10 +71,11 @@ export function useGallery({ fallbackSince, onUnauthorized }: Options): GalleryH
     loadingRef.current = true;
     setLoadingPage(true);
     const cursor = current.firstPageLoaded ? current.nextCursor : null;
+    const requestSeq = current.deleteSeq;
     api
       .getGallery(cursor, PAGE_SIZE)
       .then((page) => {
-        box.set(applyPage(stateRef.current, page, fallbackSince));
+        box.set(applyPage(stateRef.current, page, fallbackSince, requestSeq));
         if (mounted.current) setError(null);
       })
       .catch((err: unknown) => {
@@ -144,5 +151,22 @@ export function useGallery({ fallbackSince, onUnauthorized }: Options): GalleryH
     loadMore();
   }, [loadMore]);
 
-  return { state, loadingPage, error, loadMore, refresh, retry };
+  const deletePhoto = useCallback(
+    async (id: string) => {
+      box.set(beginDelete(stateRef.current, id));
+      let failure: unknown = null;
+      try {
+        await api.deletePhoto(id);
+      } catch (err) {
+        failure = err;
+      }
+      const outcome = deleteOutcome(failure);
+      box.set(finishDelete(stateRef.current, id, outcome));
+      if (outcome === 'failed') handleError(failure);
+      return { outcome, error: failure };
+    },
+    [box, handleError],
+  );
+
+  return { state, loadingPage, error, loadMore, refresh, retry, deletePhoto };
 }
