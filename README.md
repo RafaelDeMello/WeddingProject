@@ -287,7 +287,14 @@ scp -r usuario@vps:/opt/apps/weddingrafessa/data/photos ./fotos-casamento
 rclone copy r2:weddingrafessa/photos ./fotos-casamento
 ```
 
-As fotos **não** são servidas pelo Express: só chegam a alguém pelo disco/backup.
+As fotos **nunca** são públicas: o Express só as entrega a convidados com sessão (galeria, **sem** as ocultas) e ao admin autenticado. Os arquivos ficam no disco e no backup.
+
+**Fotos apagadas pelos convidados e "Reexibir":** cada convidado pode apagar as próprias fotos pelo app
+(`DELETE /api/gallery/photos/:id`). O efeito é o mesmo de "ocultar" no admin: a foto some da galeria de todos, mas
+o **arquivo continua no disco e no backup** (e vai para a pasta `_ocultas/` do ZIP) e ela **continua contando na
+cota** do convidado. ⚠️ Não existe distinção entre "apagada pelo dono" e "ocultada pelo admin": um **"Reexibir"
+do admin traz de volta também a foto que o próprio convidado apagou**. Use o reexibir só como ferramenta de
+emergência.
 
 ## 9. Problemas comuns
 

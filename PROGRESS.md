@@ -548,3 +548,46 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 ### Verificação pós-merge (PR #2, `046d836`) — registrada pelo Claude Code (Sonnet 5.5)
 - Código combinado (`main` = `046d836`): typecheck limpo; `npm test` da raiz com **236 testes no server e 122 no web, todos passando**; `npm run build` limpo.
 - CSP contra o build novo: a suíte `spa.test.ts` (que faz um `vite build` real) passou; o build não tem script/estilo/handler inline, o CSS só referencia fontes da própria origem e `data:image`, não há `eval` nem `new Function`, e nada do mock vai para o bundle de produção.
+
+---
+
+## [2026-09-30] Fase 4 (parte 1b) — O convidado apaga a própria foto
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída (antes do admin; a parte 2a — autenticação do admin e ZIP — vem a seguir)
+
+### O que foi feito
+- `DELETE /api/gallery/photos/:id` (`server/src/routes/gallery.ts`, `deleteOwnPhoto` em `server/src/gallery.ts`), exatamente como o contrato combinado com o front:
+  - Requer sessão (401) e `Origin` válido (403 `invalid_origin`; a checagem global de `/api` já cobre `DELETE`). Passa pelo limite por IP da galeria.
+  - Só o dono pode apagar. Foto de outro convidado, inexistente ou id que não é UUID → **o mesmo 404** `not_found` (mesma resposta e mesmo `Content-Type`; não revela a existência).
+  - Efeito igual ao ocultar do admin: grava `hiddenAt` e `visibilityChangedAt` com o **mesmo instante** (relógio injetável). Uma escrita condicional (`updateMany … hiddenAt: null`) garante que chamadas simultâneas resultem numa única mudança.
+  - Sucesso: **204** sem corpo; repetir, ou apagar foto já oculta do próprio dono, também é 204 **sem mexer nos timestamps**.
+  - O arquivo **continua no disco** (irá para `_ocultas/` no ZIP) e a foto **continua contando na cota** (a contagem já inclui as ocultas). Reenviar o mesmo `clientUploadId` de uma foto apagada segue idempotente (200, mesmo id).
+  - Vale depois do fim da janela de upload, enquanto a sessão existir (aprovado).
+- A foto some da galeria de todos pelo `removedIds` de `/updates`, e `GET /api/gallery/photos/:id[/thumb]` passa a dar 404 também para o dono.
+- `AGENTS.md`: contrato do `DELETE`. `README.md`: aviso sobre fotos apagadas × "Reexibir" do admin; o texto "as fotos não são servidas pelo Express" (desatualizado desde a galeria) foi corrigido.
+
+### Decisões tomadas
+- Sem coluna nova (aprovado): "apagada pelo dono" e "ocultada pelo admin" são indistinguíveis; um "Reexibir" do admin traz de volta também a foto que o dono apagou. Registrado no README e no `AGENTS.md`.
+- Cache de até 60 s (`max-age=60`) da foto já baixada por outros navegadores: aceito; a galeria deles a remove em até 15 s pelo `removedIds`, e o front remove da tela na hora para o dono.
+
+### Desvios da especificação
+- Nenhum além do endpoint novo, já registrado no `AGENTS.md` (aprovado nesta sessão).
+
+### Arquivos principais
+- `server/src/gallery.ts` (`deleteOwnPhoto`), `server/src/routes/gallery.ts` (rota)
+- `server/test/galleryDelete.test.ts`
+
+### Como rodar / testar
+- `npm test` (raiz).
+
+### Testes
+- **16 testes novos** (`galleryDelete.test.ts`): dono apaga (204 sem corpo) e a foto some de `/gallery`, de `/updates` (em `removedIds`, fora de `added`) e dos arquivos (foto e miniatura → 404, inclusive para o dono); grava os dois timestamps com o mesmo instante e o arquivo continua no disco; reexibida volta em `added`; outro convidado → 404 e a foto segue visível; outro convidado, id inexistente e id inválido dão a mesma resposta; sem sessão/cookie adulterado/convidado removido → 401; `Origin` ausente, de outro domínio e `http` → 403 sem apagar; repetir → 204 sem alterar timestamps; foto já oculta pelo admin → 204 sem alterar; 6 DELETE simultâneos → 204 e uma única mudança; **cota inalterada** (janela e total) e limite continua valendo; reenvio do mesmo `clientUploadId` idempotente; apagar depois do fim da janela.
+- Mutações verificadas: permitir apagar foto de outro convidado (3 falhas) e regravar timestamps (2 falhas).
+
+### Pendências para a próxima fase
+- Parte 2a (autenticação do admin + `export.zip`), depois 2b (página de moderação), conforme aprovado.
+- Front: remover a foto da tela na hora ao apagar e tratar 404/401/403.
+
+### Bugs relacionados
+- Nenhum.
