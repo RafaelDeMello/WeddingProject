@@ -4,10 +4,12 @@ import {
   UPDATE_OVERLAP_MS,
   applyPage,
   beginDelete,
+  goneIds,
   deleteOutcome,
   finishDelete,
   applyUpdates,
   drainUpdates,
+  drainUpdatesInto,
   initialGalleryState,
   mergeGrid,
   nextOpenKey,
@@ -285,17 +287,48 @@ describe('apagar minha foto (remoção otimista)', () => {
     const local: LocalPhoto = { clientUploadId: 'l1', url: 'blob:l1', createdAt: 5, status: 'sent', error: null, serverId: 'p1' };
     let s = beginDelete(base(), 'p1');
     expect(s.deleting.get('p1')).toBeNull();
-    let grid = mergeGrid(s.items, [local], new Set([...s.removed, ...s.deleted]), new Set(s.deleting.keys()));
+    let grid = mergeGrid(s.items, [local], goneIds(s), new Set(s.deleting.keys()));
     expect(grid.entries.map((e) => e.key)).not.toContain('local-l1');
     expect(grid.superseded).toEqual([]);
 
     const failed = finishDelete(s, 'p1', 'failed');
-    grid = mergeGrid(failed.items, [local], new Set([...failed.removed, ...failed.deleted]), new Set(failed.deleting.keys()));
+    grid = mergeGrid(failed.items, [local], goneIds(failed), new Set(failed.deleting.keys()));
     expect(grid.entries[0]!.key).toBe('local-l1');
 
     s = finishDelete(s, 'p1', 'deleted');
-    grid = mergeGrid(s.items, [local], new Set([...s.removed, ...s.deleted]), new Set(s.deleting.keys()));
+    grid = mergeGrid(s.items, [local], goneIds(s), new Set(s.deleting.keys()));
     expect(grid.superseded).toEqual(['l1']);
+  });
+
+  it('reexibida pelo admin depois do apagamento: volta (consulta iniciada depois)', () => {
+    let s = finishDelete(beginDelete(base(), 'c'), 'c', 'deleted');
+    const depois = s.deleteSeq;
+    s = applyUpdates(s, { added: [item('c', 3, { mine: true })], removedIds: [], serverTime: iso(30), hasMore: false }, depois);
+    expect(ids(s.items)).toEqual(['c', 'b', 'a']);
+    expect(s.deleted.has('c')).toBe(false);
+  });
+
+  it('resposta de consulta iniciada antes do fim do apagamento não traz de volta', () => {
+    let s = beginDelete(base(), 'c');
+    const antes = s.deleteSeq;
+    s = finishDelete(s, 'c', 'deleted');
+    s = applyUpdates(s, { added: [item('c', 3, { mine: true })], removedIds: [], serverTime: iso(30), hasMore: false }, antes);
+    s = applyPage(s, { items: [item('c', 3, { mine: true })], nextCursor: null }, OPENS, antes);
+    expect(ids(s.items)).toEqual(['b', 'a']);
+  });
+
+  it('consulta em andamento quando o DELETE termina: a resposta é antiga e não traz de volta', async () => {
+    // Estado compartilhado, como no app (ref + setState).
+    let s = beginDelete(base(), 'c');
+    const box = { get: () => s, set: (v: typeof s) => (s = v) };
+    await drainUpdatesInto(box, async () => {
+      s = finishDelete(s, 'c', 'deleted');
+      return { added: [item('c', 3, { mine: true })], removedIds: [], serverTime: iso(30), hasMore: false };
+    });
+    expect(ids(s.items)).not.toContain('c');
+    // A consulta seguinte, iniciada depois, trazendo a foto: é reexibição.
+    await drainUpdatesInto(box, async () => ({ added: [item('c', 3, { mine: true })], removedIds: [], serverTime: iso(40), hasMore: false }));
+    expect(ids(s.items)).toContain('c');
   });
 
   it('apagar duas vezes a mesma foto não faz nada', () => {

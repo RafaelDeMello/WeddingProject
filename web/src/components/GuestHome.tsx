@@ -9,7 +9,7 @@ import {
   type Quota,
   type UploadResult,
 } from '../api';
-import { mergeGrid, nextOpenKey, type GridEntry, type LocalPhoto } from '../gallery';
+import { goneIds, mergeGrid, nextOpenKey, type GridEntry, type LocalPhoto } from '../gallery';
 import { clearPending, idbPendingStorage, pendingStoreFor, restorePending } from '../pendingStore';
 import { quotaView } from '../quota';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
@@ -172,7 +172,7 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
   const { entries, superseded } = mergeGrid(
     gallery.state.items,
     locals,
-    new Set([...gallery.state.removed, ...gallery.state.deleted]),
+    goneIds(gallery.state),
     new Set(gallery.state.deleting.keys()),
   );
 

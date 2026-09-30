@@ -71,10 +71,11 @@ export function useGallery({ fallbackSince, onUnauthorized }: Options): GalleryH
     loadingRef.current = true;
     setLoadingPage(true);
     const cursor = current.firstPageLoaded ? current.nextCursor : null;
+    const requestSeq = current.deleteSeq;
     api
       .getGallery(cursor, PAGE_SIZE)
       .then((page) => {
-        box.set(applyPage(stateRef.current, page, fallbackSince));
+        box.set(applyPage(stateRef.current, page, fallbackSince, requestSeq));
         if (mounted.current) setError(null);
       })
       .catch((err: unknown) => {
