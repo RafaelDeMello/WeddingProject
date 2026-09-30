@@ -5,6 +5,7 @@ import type { Logger } from 'pino';
 import type { Env } from './env.js';
 import { errorHandler, notFound } from './errors.js';
 import { httpLogger } from './logger.js';
+import { adminRoutes } from './routes/admin.js';
 import { eventRoutes } from './routes/event.js';
 import { guestRoutes } from './routes/guests.js';
 import { sessionRoutes } from './routes/session.js';
@@ -46,6 +47,7 @@ export function createApp(deps: Omit<AppDeps, 'now' | 'statfs'> & { now?: () => 
   app.use(sessionRoutes(full));
   app.use(photoRoutes(full));
   app.use(galleryRoutes(full));
+  app.use(adminRoutes(full));
 
   app.use('/api', notFound);
 

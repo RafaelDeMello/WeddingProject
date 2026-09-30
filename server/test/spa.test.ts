@@ -72,7 +72,7 @@ describe('GET /e/:slug', () => {
     ['subcaminho do slug', `/e/${SLUG}/extra`],
     ['raiz', '/'],
     ['index.html direto', '/index.html'],
-    ['caminho qualquer', '/admin'],
+    ['caminho qualquer', '/qualquer-coisa'],
   ])('%s → 404 HTML simples, sem entregar o app', async (_label, url) => {
     const c = await setup();
     const res = await request(c.app).get(url);
