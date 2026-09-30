@@ -52,7 +52,7 @@ Veja o [`.env.example`](.env.example) completo. As principais:
 | `EVENT_SLUG` | trecho secreto do QR (`/e/<slug>`). Use algo curto e aleatório |
 | `UPLOAD_OPENS_AT` / `UPLOAD_CLOSES_AT` | janela de upload, ISO 8601 **com offset** (`-03:00`) |
 | `GUEST_MAX_PER_WINDOW` / `GUEST_WINDOW_MINUTES` / `GUEST_MAX_TOTAL` | cota real por convidado (10 a cada 10 min; 150 no total) |
-| `IP_MAX_UPLOADS_PER_WINDOW` / `IP_MAX_GUESTS_PER_WINDOW` | proteção por IP, generosa (1000 / 150 por 10 min): o Wi-Fi do salão compartilha o IP |
+| `IP_MAX_UPLOADS_PER_WINDOW` / `IP_MAX_GUESTS_PER_WINDOW` / `IP_MAX_GALLERY_PER_WINDOW` | proteção por IP, generosa (1000 / 150 / 100000 por 10 min): o Wi-Fi do salão compartilha o IP |
 | `MIN_FREE_DISK_MB` | abaixo disso o upload é recusado com 507 |
 | `SESSION_SECRET` | assina o cookie; `openssl rand -hex 32` |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | reservadas para o admin (fase futura); já são exigidas no boot |

@@ -455,3 +455,53 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Fase 4 (parte 1 de 3) — Endpoints da galeria compartilhada
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** parcial (item 1 de 3: galeria; faltam o admin de moderação e o ZIP)
+
+### O que foi feito
+- **Migração `20260930214420_gallery_visibility`** (aditiva): `Photo.visibilityChangedAt DateTime?` (atualizado a cada ocultar **e** reexibir) + índices em `createdAt` e `visibilityChangedAt`. Validada o upgrade sobre um banco no schema antigo com dados (3 fotos, 1 oculta): dados preservados, coluna nula nas antigas, `integrity_check` ok, sem drift.
+- **Endpoints** (`server/src/routes/gallery.ts`, `server/src/gallery.ts`), todos com sessão de convidado (401 sem ela) e limite por IP `IP_MAX_GALLERY_PER_WINDOW`:
+  - `GET /api/gallery?cursor=&limit=30` → `{ items, nextCursor, serverTime }`: mais recentes primeiro (`createdAt`, desempate por `id`), sem ocultas; `limit` 1–60 (padrão 30, fora disso 400 `validation_error`); cursor opaco (base64url de `createdAt em ms.id`), inválido → 400 `invalid_cursor`; busca `limit+1` para decidir `nextCursor` (sem página vazia extra); `mine` correto; nome do convidado por join (sem N+1).
+  - `GET /api/gallery/updates?since=<ISO>` → `{ added, removedIds, serverTime, hasMore }`: `added` = visíveis com `createdAt > since` **ou** `visibilityChangedAt > since` (inclui reexibidas); `removedIds` = ocultas com `visibilityChangedAt > since`; `since` exige ISO 8601 (com `Z` ou offset), senão 400; `serverTime` = horário real capturado **antes** das consultas, sem subtrair nada (a sobreposição de 30 s e a deduplicação por `id` ficam no front).
+  - Limite de **200** em `added` (mais antigos primeiro, pela data em que ficaram visíveis): com mais, `hasMore = true` e `serverTime` = instante da última foto devolvida, para o front buscar de novo na hora; fotos no mesmo instante do corte vêm juntas (nenhuma é separada); `removedIds` sempre completo.
+  - `GET /api/gallery/photos/:id/thumb` e `/:id` → arquivo; oculta, inexistente, `id` que não é UUID, arquivo ausente ou caminho do banco que escapa de `DATA_DIR` → **404** (mesma resposta para todos). Consulta o banco sempre, inclusive em requisições condicionais (304): ocultar vale na hora. `Cache-Control: private, max-age=60`, `Vary: Cookie`, ETag; 404 sem cache.
+- `AGENTS.md` atualizado com o contrato final (serverTime na listagem, `hasMore`, teto de 200, `visibilityChangedAt` e índices no modelo, novo limite na tabela e na lista de envs).
+- `.env.example` e `README.md`: `IP_MAX_GALLERY_PER_WINDOW` (padrão 100000).
+
+### Decisões tomadas
+- `visibilityChangedAt` no lugar do `unhiddenAt` proposto (aprovado): uma só coluna cobre ocultar e reexibir.
+- `added` é montado por duas consultas disjuntas já ordenadas pela chave exata (criadas e nunca mexidas por `createdAt`; mexidas por `visibilityChangedAt`) e mescladas em memória — o Prisma não ordena por `COALESCE` e evitamos SQL cru (formato de data do SQLite).
+- Teto de busca de 301 linhas por consulta (200 + folga de 100 para empates + 1); se bater no teto, `hasMore` fica verdadeiro mesmo quando tudo o que foi buscado coube.
+- A rota de arquivo devolve o mesmo 404 para oculta/inexistente/sem arquivo para não revelar a existência de fotos ocultas.
+- Até a parte 2, nada no servidor grava `visibilityChangedAt`/`hiddenAt` (o admin fará isso); os testes gravam os dois direto no banco.
+
+### Desvios da especificação
+- **Aprovados nesta fase:** coluna `visibilityChangedAt` e dois índices em `Photo` (modelo de dados); `serverTime` também na listagem e `hasMore`/teto de 200 em `updates`; limite `IP_MAX_GALLERY_PER_WINDOW` (padrão 100000). Tudo já refletido no `AGENTS.md`.
+
+### Arquivos principais
+- `server/prisma/schema.prisma`, `server/prisma/migrations/20260930214420_gallery_visibility/migration.sql`
+- `server/src/gallery.ts`, `server/src/routes/gallery.ts`, `server/src/rateLimit.ts` (`galleryLimiter`), `server/src/env.ts`, `server/src/app.ts`
+- `server/test/gallery.test.ts`
+
+### Como rodar / testar
+- `npm test` (raiz: server + web), `npm run typecheck`.
+- Migração em produção: `git pull && docker compose up -d --build` (o entrypoint roda `prisma migrate deploy`); a imagem antiga continua compatível com o banco novo.
+
+### Testes
+- **62 testes novos** (gallery); total **236 no server + 45 no web, todos passando**; typecheck limpo.
+- Cobertos: 401 em todas as rotas (sem cookie, adulterado, convidado removido); formato do item e `mine` com dois convidados (fotos enviadas de verdade); ordem e ocultas; reexibida volta na posição original; paginação de 75 fotos (30/30/15 sem repetir nem pular), múltiplo exato do limite, empates de `createdAt`, ocultar entre páginas; limit padrão/máximo/inválidos; 7 tipos de cursor inválido; `since` inválido (5 formas) e formatos aceitos; `added` estritamente depois de `since`; `since` no futuro; **`since` no passado devolve tudo o que mudou**; **foto reexibida em `added`**; **foto ocultada em `removedIds`**; criada e ocultada na mesma janela; ocultada e reexibida entre consultas; ocultadas antes de `since` não repetem; **`hasMore` com 250 novas** (200 + 50, `serverTime` no ponto de parada), exatamente 200, empate no corte, cliente seguindo `hasMore` com 450 e 700 fotos (novas + reexibidas intercaladas) sem perder nem repetir, `removedIds` completo com `added` truncado; arquivos (bytes idênticos ao disco, cabeçalhos de cache, oculta → 404 inclusive 304/ETag e para o dono, reexibida volta, id inválido/inexistente/traversal, arquivo ausente, caminhos do banco fora de `DATA_DIR`); ponta a ponta envio → updates → ocultar → updates; limite por IP (429 + `Retry-After`).
+- Mutações verificadas: servir foto oculta (3 falhas), ignorar reexibidas em `added` (5), separar empates no corte (1), subtrair do `serverTime` (1).
+
+### Pendências para a próxima fase
+- Fase 4, partes 2 e 3: admin de moderação (Basic Auth com `timingSafeEqual`, `ADMIN_MAX_FAILURES_PER_WINDOW` padrão 10 — em produção usar 30 e o moderador deve usar dados móveis, registrar no README; `/admin` em `server/admin-ui/` com `COPY` no Dockerfile; `PATCH` grava `hiddenAt` **e** `visibilityChangedAt`) e `GET /api/admin/export.zip`.
+- Front (`web/`): implementar o contrato — deduplicar por `id`, usar sobreposição de ~30 s no `since`, repetir a chamada de `updates` na hora quando `hasMore` for `true`, e remover da tela o que vier em `removedIds`.
+- `README.md` (seção 8) ainda diz que as fotos não são servidas pelo Express: atualizar na parte 2/3.
+- Deploy: a produção está no ar; implantar fora do horário da festa.
+
+### Bugs relacionados
+- Nenhum.

@@ -92,9 +92,12 @@ Todas as respostas em JSON, erros no formato `{ error: { code, message } }`.
 GalleryItem = { id, guestName, createdAt, thumbUrl, photoUrl, mine: boolean }
 ```
 
-- `GET /api/gallery?cursor=&limit=30` → `{ items: GalleryItem[], nextCursor: string | null }`, mais recentes primeiro, **sem fotos ocultas**. `mine` é `true` nas fotos do próprio convidado.
-- `GET /api/gallery/updates?since=<ISO>` → `{ added: GalleryItem[], removedIds: string[], serverTime: string }`. `added` = fotos visíveis criadas depois de `since`; `removedIds` = fotos ocultadas depois de `since`. O front usa `serverTime` como o próximo `since`.
-- `GET /api/gallery/photos/:id/thumb` e `GET /api/gallery/photos/:id` → o arquivo. Foto oculta ou inexistente → **404**. `Cache-Control: private` com cache curto.
+- `GET /api/gallery?cursor=&limit=30` → `{ items: GalleryItem[], nextCursor: string | null, serverTime: string }`, mais recentes primeiro (`createdAt`, desempate por `id`), **sem fotos ocultas**. `limit` de 1 a 60 (padrão 30); cursor inválido → 400 `invalid_cursor`. `mine` é `true` nas fotos do próprio convidado. `serverTime` é o horário real do servidor, capturado antes da consulta (serve de primeiro `since`).
+- `GET /api/gallery/updates?since=<ISO>` → `{ added: GalleryItem[], removedIds: string[], serverTime: string, hasMore: boolean }`.
+  - `added` = fotos **visíveis** com `createdAt > since` **ou** `visibilityChangedAt > since` (inclui as **reexibidas**); `removedIds` = fotos **ocultas** com `visibilityChangedAt > since`.
+  - `serverTime` = horário real, capturado antes das consultas, **sem subtrair nada**. A sobreposição (ex.: 30 s) e a deduplicação por `id` ficam no front; o front usa `serverTime` como o próximo `since`.
+  - `added` tem no máximo **200** itens, do mais antigo para o mais novo (pela data em que ficaram visíveis). Se houver mais: `hasMore = true` e `serverTime` é ajustado para o ponto onde parou, para o front buscar de novo **na hora**. Fotos no mesmo instante do corte vêm juntas. `removedIds` sempre vem completo.
+- `GET /api/gallery/photos/:id/thumb` e `GET /api/gallery/photos/:id` → o arquivo. Foto oculta ou inexistente → **404** (também em requisições condicionais). `Cache-Control: private, max-age=60`, `Vary: Cookie`.
 
 **Admin** (HTTP Basic Auth, credenciais em env — funciona direto no navegador para baixar o ZIP)
 
@@ -127,10 +130,14 @@ model Photo {
   width          Int
   height         Int
   hiddenAt       DateTime?
+  // Atualizado a cada ocultar E reexibir (alimenta added/removedIds da galeria)
+  visibilityChangedAt DateTime?
   createdAt      DateTime  @default(now())
 
   @@unique([guestId, clientUploadId])
   @@index([guestId, createdAt])
+  @@index([createdAt])
+  @@index([visibilityChangedAt])
 }
 ```
 
@@ -148,6 +155,7 @@ Todos configuráveis por env.
 | Fotos por convidado no total | 150 | |
 | Uploads por IP | 1000 a cada 10 min | **Generoso de propósito**: dezenas de convidados no Wi-Fi do salão (ou CGNAT do 4G) compartilham o mesmo IP. É só proteção contra abuso, não a cota real |
 | Criação de convidado por IP | 150 a cada 10 min | Mesma razão; env `IP_MAX_GUESTS_PER_WINDOW` |
+| Galeria por IP | 100000 a cada 10 min | Miniaturas e polling de dezenas de convidados no mesmo IP; env `IP_MAX_GALLERY_PER_WINDOW`. Só contra abuso |
 | Tentativas de login admin falhas por IP | 10 a cada 15 min | |
 | Janela de upload | `UPLOAD_OPENS_AT` → `UPLOAD_CLOSES_AT` | ISO 8601 com `-03:00`. Fora da janela: 403 `upload_closed` |
 | Tamanho máximo do arquivo | 8 MB | O cliente envia ~300 KB; a margem cobre o fallback |
@@ -208,6 +216,7 @@ GUEST_MAX_PER_WINDOW=10
 GUEST_MAX_TOTAL=150
 IP_MAX_UPLOADS_PER_WINDOW=1000
 IP_MAX_GUESTS_PER_WINDOW=150
+IP_MAX_GALLERY_PER_WINDOW=100000
 MAX_UPLOAD_BYTES=8388608
 MIN_FREE_DISK_MB=2048
 SESSION_SECRET=<openssl rand -hex 32>
