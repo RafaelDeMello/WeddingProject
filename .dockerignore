@@ -1,0 +1,47 @@
+# Contexto de build enxuto e sem segredos/dados.
+
+# Controle de versão e ferramentas
+.git
+.gitignore
+.gitattributes
+.claude
+.vscode
+.idea
+
+# Segredos — nunca entram na imagem (as envs vêm do compose/.env em runtime)
+.env
+.env.*
+!.env.example
+web/.env.local
+**/.env.local
+**/.env.*.local
+backup.env
+
+# Dados: banco SQLite, fotos e backups
+data
+backups
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Dependências e builds locais (a imagem instala e compila do zero)
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# Testes e scripts que só rodam no host
+server/test
+scripts/backup.sh
+scripts/loadtest
+
+# Arquivos de projeto que não fazem parte da imagem
+*.md
+!README.md
+LICENSE
+Dockerfile
+docker-compose*.yml
+.dockerignore
+**/*.log

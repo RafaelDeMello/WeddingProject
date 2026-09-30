@@ -1,0 +1,46 @@
+# weddingrafessa — deploy na VPS (/opt/apps/weddingrafessa), atrás do Caddy global.
+#
+# O Caddy (container `caddy`) está na rede Docker externa `proxy`. O app entra nessa rede
+# e NÃO publica portas no host: o Caddy o alcança como `weddingrafessa:3000`.
+#
+# Primeiro `up` (o bind mount precisa pertencer ao usuário do container, uid 1000):
+#   mkdir -p data && sudo chown 1000:1000 data
+
+services:
+  weddingrafessa:
+    build: .
+    image: weddingrafessa:latest
+    container_name: weddingrafessa
+    init: true
+    restart: unless-stopped
+    env_file: .env
+
+    # Limites (mem_limit 1g: o sharp decodifica imagens em memória)
+    mem_limit: 1g
+    cpus: 1
+
+    # Endurecimento: filesystem read-only (exceto /data e /tmp), sem privilégios extras
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    volumes:
+      # Fotos + banco SQLite. Bind mount (em vez de volume nomeado) para o backup e o acesso às
+      # fotos usarem um caminho simples no host: /opt/apps/weddingrafessa/data
+      - ./data:/data
+
+    networks:
+      proxy:
+        aliases:
+          - weddingrafessa
+
+    # O healthcheck está no Dockerfile (GET /api/health).
+
+networks:
+  proxy:
+    external: true
+    name: proxy
