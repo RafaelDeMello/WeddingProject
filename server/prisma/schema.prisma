@@ -18,18 +18,22 @@ model Guest {
 }
 
 model Photo {
-  id             String    @id @default(uuid())
-  guestId        String
-  guest          Guest     @relation(fields: [guestId], references: [id])
-  clientUploadId String
-  filePath       String
-  thumbPath      String
-  sizeBytes      Int
-  width          Int
-  height         Int
-  hiddenAt       DateTime?
-  createdAt      DateTime  @default(now())
+  id                  String    @id @default(uuid())
+  guestId             String
+  guest               Guest     @relation(fields: [guestId], references: [id])
+  clientUploadId      String
+  filePath            String
+  thumbPath           String
+  sizeBytes           Int
+  width               Int
+  height              Int
+  hiddenAt            DateTime?
+  /// Atualizado a cada ocultar E reexibir: alimenta added/removedIds da galeria.
+  visibilityChangedAt DateTime?
+  createdAt           DateTime  @default(now())
 
   @@unique([guestId, clientUploadId])
   @@index([guestId, createdAt])
+  @@index([createdAt])
+  @@index([visibilityChangedAt])
 }
