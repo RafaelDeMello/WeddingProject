@@ -21,6 +21,9 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
+      // O padrão do Vite 8 é iOS 16.4+. Convidados podem ter iPhones mais antigos:
+      // a sintaxe é rebaixada até iOS 14; APIs novas (ex.: randomUUID) têm fallback no código.
+      target: ['es2020', 'safari14', 'ios14', 'chrome87'],
     },
   };
 });
