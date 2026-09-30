@@ -162,3 +162,27 @@ export function resolveDataFile(dataDir: string, relative: string): string | nul
   const absolute = path.resolve(dataDir, relative);
   return absolute.startsWith(dataDir + path.sep) ? absolute : null;
 }
+
+// --- Apagar a própria foto --------------------------------------------------------------------
+
+/**
+ * O convidado "apaga" a própria foto: o efeito é o mesmo de o admin ocultar (hiddenAt e
+ * visibilityChangedAt com o mesmo instante). O arquivo continua no disco e a foto continua contando
+ * na cota. Idempotente: se já estava oculta, não mexe nos timestamps.
+ * Devolve false quando a foto não existe OU não é do convidado (o chamador responde 404 nos dois casos).
+ */
+export async function deleteOwnPhoto(
+  prisma: PrismaClient,
+  guestId: string,
+  photoId: string,
+  when: Date,
+): Promise<boolean> {
+  const owned = await prisma.photo.findFirst({ where: { id: photoId, guestId }, select: { id: true } });
+  if (!owned) return false;
+  // Condicional: duas chamadas simultâneas resultam em uma única mudança.
+  await prisma.photo.updateMany({
+    where: { id: photoId, guestId, hiddenAt: null },
+    data: { hiddenAt: when, visibilityChangedAt: when },
+  });
+  return true;
+}
