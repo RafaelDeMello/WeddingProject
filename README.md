@@ -55,7 +55,8 @@ Veja o [`.env.example`](.env.example) completo. As principais:
 | `IP_MAX_UPLOADS_PER_WINDOW` / `IP_MAX_GUESTS_PER_WINDOW` / `IP_MAX_GALLERY_PER_WINDOW` | proteção por IP, generosa (1000 / 150 / 100000 por 10 min): o Wi-Fi do salão compartilha o IP |
 | `MIN_FREE_DISK_MB` | abaixo disso o upload é recusado com 507 |
 | `SESSION_SECRET` | assina o cookie; `openssl rand -hex 32` |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | reservadas para o admin (fase futura); já são exigidas no boot |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | login (Basic Auth) do admin e do download do ZIP; `ADMIN_PASSWORD` com 12+ caracteres, use `openssl rand -base64 24` |
+| `ADMIN_MAX_FAILURES_PER_WINDOW` | tentativas de login com senha errada por IP a cada 15 min (padrão 10). **Em produção use 30** e veja a nota na [seção 8](#8-rotina-durante-o-evento-atualização-e-acesso-às-fotos) |
 | `DATA_DIR`, `DATABASE_URL` | no container: `/data` e `file:/data/db/app.db` |
 | `WEB_DIST_DIR` | opcional; padrão `../web/dist` (na imagem, o front já está lá) |
 
@@ -277,15 +278,43 @@ ls data/photos/*/ | wc -l                             # quantidade de fotos
 cd /opt/apps/weddingrafessa && git pull && docker compose up -d --build
 ```
 
-**Ver/baixar as fotos** (enquanto o `/admin` não existe):
+**Baixar todas as fotos (ZIP).** Abra no navegador e entre com o `ADMIN_USER` / `ADMIN_PASSWORD` do `.env`:
 
-```bash
-# no host da VPS: as fotos estão em /opt/apps/weddingrafessa/data/photos/AAAA-MM-DD/<id>.jpg
-# do seu computador (quem executa é você):
-scp -r usuario@vps:/opt/apps/weddingrafessa/data/photos ./fotos-casamento
-# ou direto do remoto do backup:
-rclone copy r2:weddingrafessa/photos ./fotos-casamento
 ```
+https://fotos.example.com/api/admin/export.zip
+```
+
+- **Estrutura:** uma pasta por convidado, `<nome>-<id curto>/<HHmmss>-<id da foto>.jpg` (horário de Brasília).
+  As fotos **ocultas ou apagadas pelo convidado** vêm em `_ocultas/<mesma pasta do convidado>/…`. Se algum arquivo
+  registrado no banco não existir mais no disco, ele é pulado e listado em `_faltando.txt`.
+- **Streaming:** o ZIP é gerado enquanto baixa (sem montar nada em memória), sem compressão (JPEG não comprime).
+  Por isso o navegador **não sabe o tamanho total** (sem barra de progresso confiável) e **não há retomada**: se a
+  conexão cair, o download recomeça do zero.
+- **Uma exportação por vez:** se já houver uma em andamento, a resposta é `429 export_in_progress` — espere
+  (ela diz para tentar de novo em 30 s). Se quem baixava desistiu, a vaga é liberada na hora.
+- **Demora e tamanho:** com milhares de fotos são vários GB e alguns minutos. **Baixe no Wi-Fi ou no cabo**, não no 4G.
+  Em linha de comando (pede a senha sem deixá-la no histórico):
+
+  ```bash
+  curl -u admin -o fotos-casamento.zip https://fotos.example.com/api/admin/export.zip
+  ```
+
+- **Alternativas** (quem executa é você), úteis se o download pelo navegador não for possível:
+
+  ```bash
+  # as fotos estão em /opt/apps/weddingrafessa/data/photos/AAAA-MM-DD/<id>.jpg (sem o nome do convidado)
+  scp -r usuario@vps:/opt/apps/weddingrafessa/data/photos ./fotos-casamento
+  # ou direto do remoto do backup (R2/Drive), que não depende da VPS:
+  rclone copy r2:weddingrafessa/photos ./fotos-casamento
+  ```
+
+> ⚠️ **Login do admin e o limite de tentativas erradas.** O admin tem limite de tentativas com senha errada por IP
+> (`ADMIN_MAX_FAILURES_PER_WINDOW`, padrão 10 a cada 15 min). Estourado o limite, **até a senha certa é recusada**
+> (`429`) até a janela passar — senão o limite não impediria adivinhar a senha. No Wi-Fi da festa dezenas de
+> convidados **dividem o mesmo IP**, então um tropeço de outra pessoa poderia travar o moderador.
+> **Em produção use `ADMIN_MAX_FAILURES_PER_WINDOW=30`** e entre no admin pelos **dados móveis** do celular (o IP
+> do 4G é outro, não o do Wi-Fi do salão). Com a senha gerada por `openssl rand -base64 24`, adivinhar é inviável
+> de qualquer forma; o limite é só uma segunda camada.
 
 As fotos **nunca** são públicas: o Express só as entrega a convidados com sessão (galeria, **sem** as ocultas) e ao admin autenticado. Os arquivos ficam no disco e no backup.
 
@@ -307,6 +336,9 @@ emergência.
 | "O envio de fotos ainda não abriu" | `UPLOAD_OPENS_AT` no `.env` (ISO com `-03:00`) |
 | Câmera não abre | precisa de HTTPS (o Caddy cuida) e do navegador nativo (Safari/Chrome), não de navegador interno de app |
 | Upload 507 | pouco espaço em disco (`MIN_FREE_DISK_MB`); `df -h` |
+| `429` no `/api/admin/…` com a senha certa | limite de tentativas erradas do admin (`ADMIN_MAX_FAILURES_PER_WINDOW`): espere o tempo do `Retry-After` ou use outro IP (dados móveis) |
+| `429 export_in_progress` ao baixar o ZIP | já há uma exportação em andamento; espere ~30 s (ela termina ou é liberada quando o cliente desiste) |
+| ZIP baixado incompleto / "arquivo corrompido" | a conexão caiu no meio (não há retomada): baixe de novo, de preferência no Wi-Fi/cabo, ou use `rclone`/`scp` |
 | Erro de permissão no banco após backup | rodou `sqlite3` como root sem o `setpriv`? Use o `backup.sh` como está; arrume com `sudo chown -R 1000:1000 data` |
 
 ## Estrutura

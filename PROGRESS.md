@@ -591,3 +591,56 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Fase 4 (parte 2a) — Autenticação do admin e exportação em ZIP
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída (2a); a 2b (página `/admin` de moderação, `server/admin-ui/`) fica para depois da aprovação
+
+### O que foi feito
+- **Autenticação do admin** (`server/src/adminAuth.ts`), aplicada a tudo em `/admin` e `/api/admin`:
+  - HTTP Basic Auth; usuário e senha são comparados **sempre os dois**, em tempo constante (`timingSafeEqual` sobre o SHA-256 de cada valor, sem curto-circuito); senha com `:` e UTF-8 funcionam; 401 com `WWW-Authenticate: Basic realm="weddingrafessa"` e o JSON padrão; sem credenciais o admin nem revela se o caminho existe (401, não 404).
+  - `Cache-Control: no-store` em **todas** as respostas, inclusive 401 e 429.
+  - **Limite de tentativas erradas por IP** (`ADMIN_MAX_FAILURES_PER_WINDOW`, padrão 10 a cada 15 min; `express-rate-limit` com `skipSuccessfulRequests`): só conta credenciais erradas — o pedido sem credenciais (o desafio do navegador) e as respostas bem-sucedidas não gastam a cota; com o limite estourado, **até a senha certa recebe 429** (senão o limite não impediria adivinhar a senha), com `Retry-After`/`retryAfterSeconds`.
+- **`GET /api/admin/export.zip`** (`server/src/zipExport.ts`, `server/src/routes/admin.ts`):
+  - ZIP em **streaming** com `archiver` 8.0.0 (`ZipArchive`, STORE: JPEG não comprime; ZIP64 automático). Fotos lidas do banco em lotes de 500 (paginação por `id`); no máximo 100 entradas enfileiradas por vez (cada arquivo só é aberto na sua vez, sem estourar descritores); respeita o backpressure da resposta.
+  - Pastas `<nome-slugificado>-<guestId curto>/<HHmmss>-<photoId>.jpg` (horário de `America/Sao_Paulo`); ocultas **e apagadas pelo convidado** em `_ocultas/<mesma pasta>/…`; arquivo registrado no banco e ausente no disco (ou com caminho que escapa de `DATA_DIR`) é pulado e listado em `_faltando.txt`.
+  - A data/hora de cada arquivo dentro do ZIP é a hora de Brasília (o ZIP não guarda fuso: sem o ajuste o extrator mostraria 3 h a mais — detectado no teste com `unzip`).
+  - **Uma exportação por vez**: a segunda recebe `429 export_in_progress` (`Retry-After: 30`); se o cliente desconecta, o `archiver` é abortado e a vaga liberada; erro no meio do envio derruba a conexão (melhor que um ZIP truncado que parece válido); erro antes de enviar devolve o 500 JSON padrão.
+  - `application/zip`, `Content-Disposition: attachment; filename="weddingrafessa-fotos-AAAAMMDD-HHmm.zip"`, `no-store`.
+- **Config/docs:** env `ADMIN_MAX_FAILURES_PER_WINDOW` (validada no `env.ts`, em `.env.example` e na tabela de limites do `AGENTS.md`); `AGENTS.md` com o contrato do ZIP; `README.md` com o download do ZIP (navegador e `curl -u admin`), a estrutura, o fato de não ter retomada nem barra de progresso, as alternativas (`rclone`/`scp`), a nota **"em produção usar `ADMIN_MAX_FAILURES_PER_WINDOW=30` e o moderador deve usar dados móveis"** e linhas novas em "Problemas comuns".
+
+### Decisões tomadas
+- Bloquear até a senha certa quando o limite estoura (em vez de só recusar as erradas): é o que torna o limite útil contra adivinhação; o custo (um convidado no mesmo Wi-Fi errar N vezes trava o moderador) está documentado e mitigado com 30 em produção + dados móveis.
+- Uma exportação por vez (aprovado): a leitura de milhares de arquivos numa VPS de 1 CPU não deve competir consigo mesma.
+- Sem compressão e sem `Content-Length`: o tamanho final não é conhecido de antemão (download sem barra de progresso confiável e sem retomada — documentado).
+- `express-rate-limit` reaproveitado no login do admin em vez de contador próprio (mesma biblioteca já usada nos outros limites).
+
+### Desvios da especificação
+- Nenhum além do que já foi aprovado (`ADMIN_MAX_FAILURES_PER_WINDOW` configurável; 429 `export_in_progress`; `_ocultas/<pasta do convidado>/` e `_faltando.txt`).
+
+### Arquivos principais
+- `server/src/adminAuth.ts`, `server/src/zipExport.ts`, `server/src/routes/admin.ts`, `server/src/env.ts`, `server/src/app.ts`
+- `server/test/adminAuth.test.ts`, `server/test/zipExport.test.ts`, `server/test/zipReader.ts` (leitor mínimo de ZIP só para os testes, sem dependência nova)
+- `server/package.json` (`archiver` 8.0.0, `@types/archiver` 8.0.0)
+
+### Como rodar / testar
+- `npm test`; baixar o ZIP: `curl -u admin -o fotos.zip https://fotos.example.com/api/admin/export.zip`.
+
+### Testes
+- **51 testes novos** (26 do login do admin, 25 do ZIP); total **303 no server + 122 no web, todos passando**; typecheck e build limpos.
+- Login: 401 sem credenciais em 4 caminhos (desafio Basic, JSON, `no-store`); 12 formas de credencial inválida (usuário/senha errados, quase certa ±1 caractere, maiúsculas, vazio, `Bearer`, base64 inválido, sem `:`…); senha com `:` e acentos; esquema `basic` em minúsculas; sessão de convidado não vale no admin; 404 só depois de autenticar; limite (bloqueia também a senha certa, `Retry-After`, outro IP livre, desafio e sucessos não contam, padrão 10 e configurável).
+- ZIP: estrutura e conteúdo byte a byte, pastas por convidado com nomes sanitizados (acentos, emoji, `../`), `_ocultas/` (ocultas e apagadas pelo dono), `_faltando.txt`, caminho do banco fora de `DATA_DIR` nunca entra, ZIP vazio válido, cabeçalhos, hora de Brasília (nome e carimbo do ZIP), **1200 fotos** (mais que o lote de 500) sem perder nem repetir nenhuma, **uma exportação por vez com 429 `export_in_progress` e liberação quando o cliente desconecta** (150 fotos: o produtor chega a travar esperando vaga), e o **teste de memória: 2000 fotos de 256 KB (≈500 MB) passam pelo stream com +67 MB de RSS no pico** (limite do teste: 150 MB), ZIP íntegro conferido pelo diretório central e pelo conteúdo de entradas do começo, meio e fim.
+- Mutações verificadas: sem a trava de exportação única (falha), sem abortar ao desconectar (falha, depois de subir o teste para 150 fotos), senha não verificada (7 falhas), sem limite de tentativas (3 falhas).
+- **Docker (imagem real, read-only, não-root):** 5 fotos enviadas, 1 apagada com `DELETE` (204), galeria da outra convidada mostra 4; admin sem credenciais 401 com desafio; senha errada 401; ZIP baixado com `curl -u` (`application/zip`, `chunked`); **`unzip -tq`: "No errors detected"**, listagem com as pastas por convidado e a foto apagada em `_ocultas/`; limite de tentativas (5 no teste): a 5ª errada → 429 com `Retry-After` e a senha certa também → 429.
+
+### Pendências para a próxima fase
+- **2b:** página `/admin` de moderação em `server/admin-ui/` (JS/CSS sem inline, `COPY` no Dockerfile), `GET /api/admin/photos`, `GET /api/admin/photos/:id[/thumb]` e `PATCH /api/admin/photos/:id { hidden }` gravando `hiddenAt` **e** `visibilityChangedAt`; aguardando aprovação.
+- Testar o download do ZIP grande (vários GB) pela internet, atrás do Caddy (`encode gzip` não deve comprimir `application/zip`; conferir que o streaming não é bufferizado), e com o `rclone`/`scp` como plano B.
+- `ADMIN_MAX_FAILURES_PER_WINDOW=30` no `.env` de produção; moderador com dados móveis.
+- Deploy da Fase 4 fora do horário da festa (migração aditiva já registrada).
+
+### Bugs relacionados
+- Nenhum.

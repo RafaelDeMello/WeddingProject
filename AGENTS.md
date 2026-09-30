@@ -106,7 +106,7 @@ GalleryItem = { id, guestName, createdAt, thumbUrl, photoUrl, mine: boolean }
 - `GET /api/admin/photos?cursor=` → lista paginada.
 - `GET /api/admin/photos/:id` e `GET /api/admin/photos/:id/thumb` → arquivos.
 - `PATCH /api/admin/photos/:id { hidden: boolean }` → ocultar/reexibir (soft delete).
-- `GET /api/admin/export.zip` → ZIP em **streaming** com `archiver` (nunca montar em memória), organizado em pastas por convidado: `<nome-slugificado>-<guestId curto>/<HHmmss>-<photoId>.jpg`. Incluir as ocultas em uma pasta `_ocultas/`.
+- `GET /api/admin/export.zip` → ZIP em **streaming** com `archiver` (nunca montar em memória), organizado em pastas por convidado: `<nome-slugificado>-<guestId curto>/<HHmmss>-<photoId>.jpg` (horário de `America/Sao_Paulo`). Incluir as ocultas (inclusive as apagadas pelo dono) em `_ocultas/<mesma pasta do convidado>/…`. Entradas sem compressão (STORE); fotos lidas do banco em lotes. Arquivo registrado no banco que não existe no disco é pulado e listado em `_faltando.txt`. **Uma exportação por vez**: a segunda recebe `429 export_in_progress` (`retryAfterSeconds`, `Retry-After`); se o cliente desconectar, a exportação é abortada e a vaga liberada. Resposta `application/zip`, `Content-Disposition: attachment`, `Cache-Control: no-store`.
 
 ## Modelo de dados (Prisma + SQLite)
 
@@ -157,7 +157,7 @@ Todos configuráveis por env.
 | Uploads por IP | 1000 a cada 10 min | **Generoso de propósito**: dezenas de convidados no Wi-Fi do salão (ou CGNAT do 4G) compartilham o mesmo IP. É só proteção contra abuso, não a cota real |
 | Criação de convidado por IP | 150 a cada 10 min | Mesma razão; env `IP_MAX_GUESTS_PER_WINDOW` |
 | Galeria por IP | 100000 a cada 10 min | Miniaturas e polling de dezenas de convidados no mesmo IP; env `IP_MAX_GALLERY_PER_WINDOW`. Só contra abuso |
-| Tentativas de login admin falhas por IP | 10 a cada 15 min | |
+| Tentativas de login admin falhas por IP | 10 a cada 15 min | Env `ADMIN_MAX_FAILURES_PER_WINDOW` (**em produção: 30**; o moderador deve usar dados móveis, pois os convidados dividem o IP do Wi-Fi). Só conta credenciais erradas (o desafio 401 sem credenciais não conta); estourado o limite, até a senha certa recebe 429 |
 | Janela de upload | `UPLOAD_OPENS_AT` → `UPLOAD_CLOSES_AT` | ISO 8601 com `-03:00`. Fora da janela: 403 `upload_closed` |
 | Tamanho máximo do arquivo | 8 MB | O cliente envia ~300 KB; a margem cobre o fallback |
 | Espaço mínimo em disco | 2 GB livres | Abaixo disso, recusar upload com 507 e logar alerta (`fs.statfs`) |
@@ -223,6 +223,7 @@ MIN_FREE_DISK_MB=2048
 SESSION_SECRET=<openssl rand -hex 32>
 ADMIN_USER=<...>
 ADMIN_PASSWORD=<openssl rand -base64 24>
+ADMIN_MAX_FAILURES_PER_WINDOW=10
 DATA_DIR=/data
 DATABASE_URL=file:/data/db/app.db
 ```
