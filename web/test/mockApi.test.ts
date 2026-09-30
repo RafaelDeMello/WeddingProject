@@ -53,6 +53,18 @@ describe('mockApi', () => {
     await expect(api.uploadPhoto(photo(), 'd')).resolves.toMatchObject({ duplicate: false });
   });
 
+  it('cota é por convidado: trocar de pessoa ("Não é você?") zera a cota', async () => {
+    const { api } = setup();
+    await api.createGuest('dev123', 'Ana');
+    await api.uploadPhoto(photo(), 'a');
+    await api.uploadPhoto(photo(), 'b');
+    await api.logout();
+    const outra = await api.createGuest('dev123', 'Bia');
+    expect(outra.quota).toMatchObject({ remainingInWindow: 3, remainingTotal: 5, resetsAt: null });
+    // Mesmo clientUploadId de outra pessoa não é tratado como duplicado.
+    await expect(api.uploadPhoto(photo(), 'a')).resolves.toMatchObject({ duplicate: false });
+  });
+
   it('cenário rede instável: falha 2 vezes por foto e depois passa', async () => {
     const { api, control } = setup();
     control.scenario = 'network_flaky';

@@ -48,13 +48,16 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
 
   const control: MockControl = { scenario: 'success', eventStatus: 'open', uploadCalls: 0 };
   let guest: { guestId: string; name: string } | null = null;
-  const photos = new Map<string, { id: string; createdAt: number }>();
+  // Chave: `<dono>:<clientUploadId>`. No modo photos o guest é do servidor real e o mock não o conhece: um dono só.
+  const photos = new Map<string, { id: string; createdAt: number; owner: string }>();
+  const owner = () => guest?.guestId ?? 'sem-sessao-mock';
   const flakyAttempts = new Map<string, number>();
 
   function quota(): Quota {
     const at = now();
-    const inWindow = [...photos.values()].filter((p) => p.createdAt > at - windowMs);
-    const remainingTotal = Math.max(0, total - photos.size);
+    const mine = [...photos.values()].filter((p) => p.owner === owner());
+    const inWindow = mine.filter((p) => p.createdAt > at - windowMs);
+    const remainingTotal = Math.max(0, total - mine.length);
     const oldest = Math.min(...inWindow.map((p) => p.createdAt));
     return {
       remainingInWindow: Math.max(0, Math.min(perWindow - inWindow.length, remainingTotal)),
@@ -146,7 +149,7 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
       }
 
       // Idempotência: mesmo clientUploadId → 200 com a foto existente, sem contar de novo.
-      const existing = photos.get(clientUploadId);
+      const existing = photos.get(`${owner()}:${clientUploadId}`);
       if (existing) return { id: existing.id, quota: quota(), duplicate: true };
 
       const current = quota();
@@ -155,7 +158,7 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
         throw rateLimited(current.remainingTotal <= 0 ? windowMs / 1000 : (resetsAt - now()) / 1000);
       }
       const created = { id: crypto.randomUUID(), createdAt: now() };
-      photos.set(clientUploadId, created);
+      photos.set(`${owner()}:${clientUploadId}`, { ...created, owner: owner() });
       return { id: created.id, quota: quota(), duplicate: false };
     },
   };

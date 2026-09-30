@@ -174,9 +174,11 @@ export function parseMockMode(value: string | undefined): MockMode {
   return 'off';
 }
 
-export const mockMode: MockMode = parseMockMode(import.meta.env.VITE_MOCK_API);
+// Mock só no `vite dev`: o build de produção nunca simula, mesmo com um .env.local esquecido,
+// e o minificador descarta o código do mock (import.meta.env.DEV vira `false`).
+export const mockMode: MockMode = import.meta.env.DEV ? parseMockMode(import.meta.env.VITE_MOCK_API) : 'off';
 
-const mock = mockMode === 'off' ? null : createMockApi();
+const mock = import.meta.env.DEV && mockMode !== 'off' ? createMockApi() : null;
 const http = createHttpApi();
 
 /** Controle do mock (cenário de upload, status do evento); null fora do modo mock. */
