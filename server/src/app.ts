@@ -8,6 +8,7 @@ import { httpLogger } from './logger.js';
 import { eventRoutes } from './routes/event.js';
 import { guestRoutes } from './routes/guests.js';
 import { sessionRoutes } from './routes/session.js';
+import { resolveWebDist, spaRoutes } from './spa.js';
 import { originCheck, securityHeaders } from './security.js';
 import { defaultStatFs, type StatFs } from './storage.js';
 import { photoRoutes } from './routes/photos.js';
@@ -45,6 +46,11 @@ export function createApp(deps: Omit<AppDeps, 'now' | 'statfs'> & { now?: () => 
   app.use(photoRoutes(full));
 
   app.use('/api', notFound);
+
+  const webDist = resolveWebDist(env);
+  if (webDist) app.use(spaRoutes(env, webDist));
+  else logger.warn('build do front não encontrado: /e/:slug não será servido');
+
   app.use(errorHandler);
   return app;
 }

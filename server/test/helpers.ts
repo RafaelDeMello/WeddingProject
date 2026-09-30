@@ -27,6 +27,8 @@ export const baseEnv: Record<string, string> = {
   ADMIN_USER: 'admin',
   ADMIN_PASSWORD: 'senha-de-teste-123',
   DATA_DIR: '/tmp/unused',
+  // Testes do backend não servem o front; os do SPA sobrescrevem com o build real.
+  WEB_DIST_DIR: '/nonexistent-web-dist',
   DATABASE_URL: 'file:/tmp/unused.db',
 };
 

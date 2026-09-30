@@ -33,6 +33,8 @@ const envSchema = z
     ADMIN_USER: secret(1),
     ADMIN_PASSWORD: secret(12),
     DATA_DIR: z.string().min(1),
+    /** Build do front (padrão: ../web/dist relativo ao server). */
+    WEB_DIST_DIR: z.string().min(1).optional(),
     DATABASE_URL: z.string().startsWith('file:', 'deve começar com file:'),
   })
   .superRefine((env, ctx) => {
@@ -56,6 +58,7 @@ const envSchema = z
     // Só a origem (sem barra final ou caminho), para comparar com o header Origin.
     PUBLIC_BASE_URL: new URL(env.PUBLIC_BASE_URL).origin,
     DATA_DIR: path.resolve(env.DATA_DIR),
+    WEB_DIST_DIR: env.WEB_DIST_DIR ? path.resolve(env.WEB_DIST_DIR) : undefined,
   }));
 
 export type Env = z.infer<typeof envSchema>;

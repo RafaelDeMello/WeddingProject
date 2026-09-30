@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { createPrisma, ensureDataDirs, initDb } from './db.js';
 import { EnvError, parseEnv } from './env.js';
 import { createLogger } from './logger.js';
+import { resolveWebDist } from './spa.js';
 import { cleanTmp } from './storage.js';
 
 async function main() {
@@ -17,6 +18,11 @@ async function main() {
   }
 
   const logger = createLogger(env.NODE_ENV);
+  if (env.NODE_ENV === 'production' && !resolveWebDist(env)) {
+    // Sem o front compilado o QR das mesas levaria a um 404: melhor nem subir.
+    console.error('Build do front não encontrado (WEB_DIST_DIR ou ../web/dist).');
+    process.exit(1);
+  }
   await ensureDataDirs(env.DATA_DIR);
   await cleanTmp(env.DATA_DIR);
   const prisma = createPrisma(env.DATABASE_URL);
