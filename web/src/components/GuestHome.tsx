@@ -10,7 +10,7 @@ import {
   type GuestSession,
   type Quota,
 } from '../api';
-import { clearPending, loadPending, pendingStoreFor } from '../pendingStore';
+import { clearPending, idbPendingStorage, pendingStoreFor, restorePending } from '../pendingStore';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
 import { CameraView } from './CameraView';
 import { PhotoPreview } from './PhotoPreview';
@@ -51,7 +51,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
           setQuota(result.quota);
           setToastKey((k) => k + 1);
         },
-        store: pendingStoreFor(session.guestId),
+        store: pendingStoreFor(idbPendingStorage, session.guestId),
         onFailed: (error) => {
           if (error.status === 401 || error.code === 'upload_closed') onSessionErrorRef.current(error);
           // Total esgotado: zera a cota local, e a tela mostra "já enviou o máximo" (nunca "tente em X min").
@@ -70,15 +70,10 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     return () => clearTimeout(timer);
   }, [toastKey]);
 
-  // Reabriu a página: reenvia o que ficou pendente (mesmo clientUploadId → o servidor não duplica).
+  // Reabriu a página ou a sessão anterior caiu (401): reenvia as pendentes por esta sessão.
+  // restore ignora ids já na fila, então rodar duas vezes (StrictMode) não duplica.
   useEffect(() => {
-    let cancelled = false;
-    void loadPending(session.guestId).then((records) => {
-      if (!cancelled) records.forEach((record) => queue.restore(record));
-    });
-    return () => {
-      cancelled = true;
-    };
+    void restorePending(idbPendingStorage, session.guestId, queue);
   }, [queue, session.guestId]);
 
   // Voltou a internet: reenvia na hora o que falhou por rede.
@@ -137,7 +132,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
     try {
       await api.logout();
       queue.dispose();
-      await clearPending(session.guestId);
+      await clearPending(idbPendingStorage, session.guestId);
       onLoggedOut();
     } catch (err) {
       // Sem apagar o cookie, a próxima pessoa entraria com a sessão desta.
