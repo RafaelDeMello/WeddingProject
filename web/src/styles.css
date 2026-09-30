@@ -1,0 +1,797 @@
+/* Identidade do casamento. Sem estilos inline (CSP style-src 'self'); fontes servidas pelo próprio app. */
+
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/cormorant-garamond-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/cormorant-garamond-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Great Vibes';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/great-vibes-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/inter-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+
+:root {
+  /* Paleta */
+  --verde-escuro: #4f6b40; /* texto, títulos, botão principal (texto branco) */
+  --verde-profundo: #3a5230; /* texto sobre blush / sálvia-claro */
+  --salvia: #8fa878; /* só detalhes e bordas — nunca texto */
+  --salvia-claro: #c9d6b8; /* fundos suaves e desativado */
+  --marfim: #f6f2e9; /* cartões */
+  --offwhite: #eeede7; /* fundo da página */
+  --dourado: #b8912f; /* só detalhes finos — nunca texto */
+  --blush: #efc4b8; /* secundário e confirmações */
+  --pessego: #f2b98e; /* acento pontual */
+  --erro: #a33a2a;
+
+  /* Faixas sobre o vídeo: escuras o bastante para texto marfim mesmo com imagem clara por trás. */
+  --faixa: rgba(24, 32, 20, 0.8);
+
+  --font-texto: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-titulo: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-script: 'Great Vibes', 'Cormorant Garamond', Georgia, cursive;
+
+  --recorte: 10px; /* raio dos cantos recortados dos cartões */
+  --toque: 48px; /* altura mínima de alvo de toque */
+
+  font-family: var(--font-texto);
+  color: var(--verde-escuro);
+  background: var(--offwhite);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--offwhite);
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  line-height: 1.5;
+}
+
+h1,
+h2 {
+  font-family: var(--font-titulo);
+  font-weight: 600;
+  color: var(--verde-escuro);
+  line-height: 1.15;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+.num {
+  font-family: var(--font-titulo);
+  font-weight: 600;
+  font-size: 1.2em;
+  font-variant-numeric: lining-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Botões ---------- */
+
+button {
+  font: inherit;
+  font-weight: 600;
+  min-height: var(--toque);
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--verde-escuro);
+  outline-offset: 2px;
+}
+
+button.primary {
+  background: var(--verde-escuro);
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+button.primary:active:not(:disabled) {
+  background: var(--verde-profundo);
+}
+
+button.secondary {
+  background: var(--blush);
+  color: var(--verde-profundo);
+}
+
+button.secondary:active:not(:disabled) {
+  background: var(--pessego);
+}
+
+/* Desativado: sálvia-claro com verde-profundo (contraste AA), sem opacidade. */
+button.primary:disabled,
+button.secondary:disabled {
+  background: var(--salvia-claro);
+  color: var(--verde-profundo);
+  cursor: default;
+}
+
+button.link {
+  background: none;
+  border: none;
+  min-height: 44px;
+  padding: 8px 4px;
+  border-radius: 6px;
+  color: var(--verde-escuro);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+button.link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.small {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+}
+
+/* ---------- Página e cartões ---------- */
+
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+}
+
+/*
+ * Cartão de convite: marfim, borda fina dupla em sálvia (borda + filete interno)
+ * e cantos côncavos recortados por máscara (-webkit-mask para o Safari do iOS).
+ */
+.card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: var(--marfim);
+  border: 1px solid var(--salvia);
+  padding: 36px 26px 30px;
+  text-align: center;
+  -webkit-mask:
+    radial-gradient(circle at 0 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top left,
+    radial-gradient(circle at 100% 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top right,
+    radial-gradient(circle at 0 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom left,
+    radial-gradient(circle at 100% 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom right;
+  -webkit-mask-size: 51% 51%;
+  -webkit-mask-repeat: no-repeat;
+  mask:
+    radial-gradient(circle at 0 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top left,
+    radial-gradient(circle at 100% 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top right,
+    radial-gradient(circle at 0 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom left,
+    radial-gradient(circle at 100% 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom right;
+  mask-size: 51% 51%;
+  mask-repeat: no-repeat;
+}
+
+/* Filete interno da borda dupla. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 1px solid var(--salvia);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.card > * {
+  position: relative;
+}
+
+.ornament {
+  width: 132px;
+  height: 24px;
+  margin: 0 auto 14px;
+  background: url('./assets/ornament.svg') center / contain no-repeat;
+}
+
+.divider {
+  width: 150px;
+  height: 10px;
+  margin: 16px auto;
+  background: url('./assets/divider.svg') center / contain no-repeat;
+}
+
+.eyebrow {
+  font-family: var(--font-titulo);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.title {
+  font-size: 2rem;
+}
+
+.title-script {
+  font-family: var(--font-script);
+  font-weight: 400;
+  font-size: 2.9rem;
+  line-height: 1.1;
+  padding: 0 4px;
+}
+
+.message-body {
+  font-size: 1.05rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.message-body button {
+  min-width: 200px;
+}
+
+.error {
+  color: var(--erro);
+  font-weight: 500;
+}
+
+/* ---------- Nome ---------- */
+
+.name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.name-form .lead {
+  margin-bottom: 8px;
+}
+
+.name-form label {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.name-form input {
+  font: inherit;
+  font-size: 17px; /* ≥16px evita o zoom automático do iOS */
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid var(--salvia);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--verde-profundo);
+}
+
+.name-form button {
+  margin-top: 6px;
+  min-height: 52px;
+}
+
+/* ---------- Tela do convidado ---------- */
+
+.guest-home {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Pílulas e avisos em blush: sempre com verde-profundo. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--blush);
+  color: var(--verde-profundo);
+  border-radius: 999px;
+  padding: 4px 14px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.pill-quota {
+  align-self: flex-start;
+}
+
+button.pill-status {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: none;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+button.pill-status-failed {
+  background: var(--marfim);
+  color: var(--erro);
+}
+
+.banner {
+  background: var(--blush);
+  color: var(--verde-profundo);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topbar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.greeting {
+  font-size: 1rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.greeting strong {
+  font-family: var(--font-titulo);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+/* ---------- Câmera ao vivo: vídeo em tela cheia, faixas escuras translúcidas ---------- */
+
+.camera.is-hidden {
+  display: none;
+}
+
+.camera-live {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  background: #121810;
+  overflow: hidden;
+  color: var(--marfim);
+}
+
+.viewfinder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.viewfinder.mirror {
+  transform: scaleX(-1);
+}
+
+.viewfinder-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--marfim);
+}
+
+.band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--faixa);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+}
+
+.band-top {
+  top: 0;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(184, 145, 47, 0.45);
+}
+
+.band-bottom {
+  bottom: 0;
+  padding-top: 14px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(184, 145, 47, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.camera-live .greeting strong {
+  color: var(--marfim);
+}
+
+.camera-live button.link {
+  color: var(--marfim);
+}
+
+.band-bottom button.link {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.band-error {
+  color: var(--marfim);
+  background: var(--erro);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 500;
+}
+
+.camera-actions {
+  width: 100%;
+  max-width: 480px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+button.ghost {
+  justify-self: start;
+  background: transparent;
+  color: var(--marfim);
+  border: 1px solid var(--marfim);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+button.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.camera-actions-status {
+  justify-self: end;
+}
+
+/* Obturador: marfim com anel dourado. */
+button.shutter {
+  width: 78px;
+  height: 78px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--marfim);
+  border: 4px solid #121810;
+  box-shadow:
+    0 0 0 3px var(--dourado),
+    0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+button.shutter:active:not(:disabled) {
+  transform: scale(0.93);
+  background: var(--salvia-claro);
+}
+
+button.shutter:disabled {
+  background: var(--salvia-claro);
+  box-shadow: 0 0 0 3px var(--salvia);
+  cursor: default;
+}
+
+/* ---------- Câmera indisponível: cartão com o botão do fallback ---------- */
+
+.camera-fallback {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+}
+
+.camera-fallback > .topbar {
+  width: 100%;
+  max-width: 440px;
+}
+
+.fallback-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.fallback-card button.primary {
+  min-height: 60px;
+  font-size: 1.1rem;
+}
+
+/* ---------- Preview: camada inteira, foto em moldura blush ---------- */
+
+.preview {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background: var(--offwhite);
+  display: flex;
+  flex-direction: column;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+    calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  gap: 16px;
+  animation: aparecer 0.2s ease-out;
+}
+
+/* Título e foto juntos no centro; botões presos embaixo. */
+.preview-title {
+  text-align: center;
+  font-size: 1.9rem;
+  margin-top: auto;
+}
+
+.preview-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-frame img {
+  max-width: 100%;
+  max-height: calc(100vh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  object-fit: contain;
+  display: block;
+  background: var(--marfim);
+  border: 10px solid var(--blush);
+  outline: 1px solid var(--dourado);
+  outline-offset: -5px;
+  border-radius: 4px;
+}
+
+.preview-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+  margin: auto auto 0;
+}
+
+.preview-actions button {
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+
+/* ---------- Aviso "Foto enviada ✓" ---------- */
+
+.toast {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  top: calc(132px + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  background: var(--blush);
+  color: var(--verde-profundo);
+  border: 1px solid var(--dourado);
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+  animation: aviso 2s ease-out forwards;
+}
+
+/* ---------- Lista de envios ---------- */
+
+.uploads {
+  max-width: 560px;
+  margin: 20px auto calc(24px + env(safe-area-inset-bottom));
+  width: calc(100% - 32px);
+  text-align: left;
+  padding: 26px 22px 20px;
+}
+
+.uploads h2 {
+  text-align: center;
+  font-size: 1.5rem;
+}
+
+.uploads .divider {
+  margin: 10px auto 12px;
+}
+
+.uploads ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--salvia-claro);
+}
+
+.upload:last-child {
+  border-bottom: none;
+}
+
+.upload-time {
+  font-family: var(--font-titulo);
+  font-weight: 600;
+  font-size: 1.1rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.upload-status {
+  font-size: 0.92rem;
+}
+
+/* Selo blush "Enviada ✓". */
+.upload-sent .upload-status {
+  background: var(--blush);
+  color: var(--verde-profundo);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-weight: 600;
+}
+
+.upload-failed .upload-status {
+  color: var(--erro);
+  font-weight: 500;
+}
+
+.upload-waiting_retry .upload-status,
+.upload-sending .upload-status,
+.upload-queued .upload-status {
+  font-style: italic;
+}
+
+.upload-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.upload-actions button.small:not(.link) {
+  background: var(--verde-escuro);
+  color: #fff;
+}
+
+/* ---------- Painel do mock (só em desenvolvimento) ---------- */
+
+.mock-panel {
+  position: fixed;
+  right: 8px;
+  bottom: calc(150px + env(safe-area-inset-bottom));
+  background: #fff;
+  color: #222;
+  border: 1px dashed var(--dourado);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  z-index: 10;
+  opacity: 0.9;
+}
+
+.mock-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+/* ---------- Movimento ---------- */
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes aviso {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  12%,
+  80% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
