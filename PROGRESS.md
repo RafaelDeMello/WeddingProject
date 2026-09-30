@@ -296,3 +296,69 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Fase 6 — Docker, compose, README de deploy, reset-data, backup e `/e/:slug` (antecipado da Fase 5)
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída
+
+### O que foi feito
+- **SPA servido pelo Express** (`server/src/spa.ts`): `GET /e/<EVENT_SLUG>` devolve o `index.html` do build (`Cache-Control: no-cache`); slug errado, `/e/`, `/e/<slug>/extra`, `/`, `/index.html` e qualquer outro caminho → **404 HTML simples** que não entrega o app. `/assets/*` (e demais arquivos do build) via `express.static` só sobre `web/dist`, com `max-age=1 ano, immutable` em `/assets`. `X-Robots-Tag: noindex`. Nada de `DATA_DIR` é servido. Env nova e opcional `WEB_DIST_DIR` (padrão `../web/dist`). Em produção, sem build do front o servidor nem sobe.
+- **Dockerfile multi-stage** (`node:22-bookworm-slim` + `openssl`): `build` (npm ci + `vite build` + `tsc`), `prod-deps` (`npm ci --omit=dev -w server`, com o CLI do prisma e o client gerado para `debian-openssl-3.0.x`) e `runtime` (sem devDependencies nem código-fonte, usuário **não-root** `node`, `HOME=/tmp`, healthcheck em `/api/health`). Imagem de ~771 MB.
+- **`docker/entrypoint.sh`**: cria `/data/{db,photos,thumbs,tmp}`, roda `prisma migrate deploy --schema prisma/schema.prisma` e faz `exec node dist/index.js`. **Com argumentos executa o comando pedido** (sem migrar nem subir a API) — necessário para o `reset-data` via `docker compose run`.
+- **`docker-compose.yml`**: serviço/container/alias `weddingrafessa` na rede externa **`proxy`** (a do Caddy), **sem publicar portas**; `mem_limit: 1g`, `cpus: 1`, `read_only: true` + `tmpfs /tmp`, `cap_drop: ALL`, `no-new-privileges`, `init: true`, `restart: unless-stopped`, bind mount `./data:/data`.
+- **`.dockerignore`** sem segredos/dados (`.env*`, `web/.env.local`, `data`, `*.db*`, `backup.env`, testes, `node_modules`, `dist`).
+- **`scripts/reset-data.mjs`** (+ `npm run reset-data`): mostra o que vai apagar (fotos/convidados no banco e arquivos/MB por pasta), exige digitar `APAGAR`; apaga o conteúdo de `photos/`, `thumbs/`, `tmp/` e zera `Photo`/`Guest` (banco, schema e migrações ficam; `wal_checkpoint` + `VACUUM`). `--yes` só fora de produção. Recusa diretório que não parece de dados do app.
+- **`scripts/backup.sh`**: backup online do SQLite (`sqlite3 ".backup"` com `-readonly`, dentro de um diretório de trabalho do dono do banco) + `integrity_check` + `rclone copy` (nunca `sync`) de `photos/`, `thumbs/` e `db/`; `flock` (rodada anterior em andamento → pula), rotação local (`BACKUP_KEEP_DB`, padrão 144), `--check` (valida ferramentas, banco e remoto), configuração por ambiente ou `backup.env`. Como root, abre o SQLite com o uid do dono do banco (`setpriv`) para não criar `-wal/-shm` de root ao lado do banco em uso.
+- **README** reescrito: dev local, envs, deploy passo a passo, **Caddy** (inspecionar → backup do Caddyfile → `tee -a`/`nano` → conferir o que o **container** enxerga → `caddy validate` → `caddy reload`; aviso do bind mount de arquivo único; como desfazer; nunca reiniciar o Caddy), verificação pós-deploy, rclone (R2/Drive), cron, restore, reset, rotina, como pegar as fotos sem admin, problemas comuns.
+- `.gitattributes`: `*.sh` e `Dockerfile` com `eol=lf`.
+
+### Decisões tomadas
+- **Bind mount `./data:/data`** em vez de volume nomeado (aprovado) — o backup e o acesso às fotos (sem admin) usam um caminho simples no host: `/opt/apps/weddingrafessa/data`. O README exige `mkdir data && sudo chown 1000:1000 data` antes do primeiro `up`.
+- `prisma.config.ts` **não** vai para a imagem: o CLI roda com `--schema` e as envs vêm do compose (evita carregar TypeScript em runtime).
+- `index.html` nunca em cache; `/assets` imutáveis (nomes com hash).
+- O `reset-data` roda num **container avulso** (`docker compose stop` + `docker compose run --rm --no-deps …`) e não no container da API. Por isso ele **não** detecta se a API está no ar (mudança em relação ao entendimento aprovado, que previa recusar); o README manda parar a API e a confirmação `APAGAR` é obrigatória em produção.
+- Backup roda como root (ou uid 1000) no host; `sqlite3`/`rclone` ficam no host, não na imagem.
+- O teste do SPA faz um `vite build` real em pasta temporária no `globalSetup` do Vitest: a verificação de CSP vale para o build de verdade e vai cobrir automaticamente o front novo após o merge.
+
+### Desvios da especificação
+- **Aprovado:** bind mount `./data:/data` no lugar do volume nomeado `weddingrafessa_data:/data` (spec, seção Docker).
+- **Aprovado:** reordenação — Fase 6 (+ `backup.sh`) antes da 5 e da 4; `/e/:slug` antecipado da Fase 5.
+- **Aprovado:** env nova opcional `WEB_DIST_DIR`.
+- Rede: o app entra na rede externa `proxy` do Caddy, sem publicar portas (padrão existente da VPS), conforme a inspeção informada.
+- Entrypoint aceita argumentos (exec do comando) — extensão ao "entrypoint = migrate deploy && node dist/index.js" da spec.
+
+### Arquivos principais
+- `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `docker/entrypoint.sh`
+- `server/src/spa.ts`, `server/src/app.ts`, `server/src/index.ts`, `server/src/env.ts`
+- `scripts/reset-data.mjs`, `scripts/backup.sh`
+- `README.md`, `.env.example`, `.gitattributes`, `.gitignore`
+- `server/test/spa.test.ts`, `server/test/resetData.test.ts`, `server/test/globalSetup.ts`
+
+### Como rodar / testar
+- `npm test` (174 testes; o `globalSetup` compila o front)
+- Local com Docker: `docker build -t weddingrafessa:test .` e subir com o compose usando um `.env` de teste (precisa existir a rede `proxy`: `docker network create proxy`)
+- VPS: seguir o README (seções 3, 4 e 5)
+
+### Testes
+- **174 passando, 0 falhando** (duas execuções seguidas). Novos: 23 do SPA/CSP + 10 do `reset-data`.
+- SPA/CSP (contra o build real): slug certo/errado/maiúsculas/sem slug/subcaminho/raiz/`index.html`/POST; `/api` segue em JSON; sem build o `/e/:slug` não existe; assets com tipo e cache corretos; path traversal (`%2e%2e`, barra invertida, byte nulo) não vaza o banco; nada de `DATA_DIR` público; `index.html` sem script/estilo/handler inline nem recursos externos; CSS só com `url()` da própria origem ou `data:image`; JS sem `eval`/`new Function`. Mutação (tirar a checagem do slug e do `/index.html`) quebra 3 testes.
+- `reset-data`: `APAGAR` zera tudo e mantém pastas e banco; respostas erradas/minúsculas/vazia/entrada encerrada cancelam sem apagar; `--yes` fora de produção; `--yes` em produção recusado; diretório inválido; argumento desconhecido.
+- **Docker (local, Docker Desktop):** imagem compila; compose sobe `healthy`; roda como uid 1000, `read_only`, `cap_drop ALL`, `mem=1 GiB`, 1 CPU, **sem portas publicadas**; outro container na rede `proxy` alcança `http://weddingrafessa:3000` (como o Caddy fará); smoke completo em produção (SPA, CSP, HSTS, 404 de slug errado, Origin estrito, guest → cookie `Secure` → upload 201 → retry 200 → texto `.jpg` 415 → cota descontada uma vez); dados persistem em restart/recriação; `reset-data` via `compose run` (resposta errada → cancela; `--yes` → recusado; `APAGAR` → zera) e API sobe normalmente depois; navegador real abriu `/e/<slug>` sem nenhuma violação de CSP no console.
+- **`backup.sh` (container Debian com sqlite3 + rclone, como root):** 23 verificações OK — `--check`, backup com o banco sendo escrito em WAL (íntegro), nada de `-wal/-shm` do root, rotação local com remoto preservando tudo, foto apagada localmente continua no remoto, `flock` pula rodada concorrente, erros retornam código ≠ 0; `shellcheck` limpo em `backup.sh` e `entrypoint.sh`.
+- Bugs encontrados e corrigidos nesta fase (pelos testes): readline do `reset-data` resolvia a confirmação como cancelada; entrypoint ignorava argumentos (o `compose run` do reset subia a API); `BACKUP_DIR` 700 impedia o `sqlite3` do uid 1000 de gravar o backup.
+
+### Pendências para a próxima fase
+- **Depois do merge da branch `FeatWeb`: reexecutar o teste de CSP (`npm test`, suíte `spa.test.ts`) e o teste no Docker** (build da imagem + smoke + abrir `/e/<slug>` no navegador), porque o build terá fontes `.woff2` e SVGs em `/assets`. Pontos de atenção: `font-src 'self'` **não** permite `data:` (fontes pequenas podem ser inlinadas pelo Vite — ajustar `build.assetsInlineLimit` ou a CSP); `style-src 'self'` bloqueia `style="…"` no HTML e `<style>` inline (estilos aplicados via CSSOM/`element.style` pelo React são permitidos).
+- **Não executado na VPS** (regra do projeto): nada foi rodado lá. Antes do deploy real, o usuário executa o README (seções 3–5); o `caddy validate` é obrigatório antes do `reload`.
+- Fase 5 (front): tratar 413/415/422/429 (`quota_exceeded` × `total_quota_exceeded`) e 507; botão "Não é você?"; confirmar HEIC no iPhone.
+- Fase 4 (admin): sem `/admin`, as fotos só são vistas pelo disco/`scp`/backup (README, seção 8).
+- Fase 7 (loadtest): conferir memória com `docker stats` sob 50 convidados (limite 1 GiB).
+- Backup: testar o `rclone config` real (R2/Drive) na VPS com `backup.sh --check` antes do evento; o teste aqui usou um destino local.
+- Antes do evento: rodar o `reset-data` depois dos testes e **voltar `UPLOAD_OPENS_AT`** ao valor real.
+- Imagem com ~771 MB; aceitável para a VPS, pode ser enxugada depois.
+
+### Bugs relacionados
+- Nenhum.
