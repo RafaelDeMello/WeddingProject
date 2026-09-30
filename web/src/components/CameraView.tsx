@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { CameraError, cameraFailureMessage, openCamera, stopStream, type CameraFailure, type Facing } from '../camera';
+import {
+  CameraError,
+  actualFacing,
+  cameraFailureMessage,
+  openCamera,
+  shouldMirror,
+  stopStream,
+  type CameraFailure,
+  type Facing,
+} from '../camera';
 import { captureVideoFrame, compressFile } from '../compress';
 
 interface Props {
@@ -29,6 +38,7 @@ export function CameraView({ disabled, hidden, onCapture, topBar, statusPill }: 
   const fileRef = useRef<HTMLInputElement>(null);
   const [facing, setFacing] = useState<Facing>('environment');
   const [ready, setReady] = useState(false);
+  const [mirror, setMirror] = useState(false);
   const [failure, setFailure] = useState<CameraFailure | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +54,7 @@ export function CameraView({ disabled, hidden, onCapture, topBar, statusPill }: 
       .then((s) => {
         if (cancelled) return stopStream(s);
         stream = s;
+        setMirror(shouldMirror(facing, actualFacing(s)));
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = s;
@@ -65,7 +76,7 @@ export function CameraView({ disabled, hidden, onCapture, topBar, statusPill }: 
     setBusy(true);
     setError(null);
     try {
-      onCapture(await captureVideoFrame(video));
+      onCapture(await captureVideoFrame(video, mirror));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível tirar a foto.');
     } finally {
@@ -125,7 +136,7 @@ export function CameraView({ disabled, hidden, onCapture, topBar, statusPill }: 
         <>
           <video
             ref={videoRef}
-            className={facing === 'user' ? 'viewfinder mirror' : 'viewfinder'}
+            className={mirror ? 'viewfinder mirror' : 'viewfinder'}
             playsInline
             muted
             autoPlay
