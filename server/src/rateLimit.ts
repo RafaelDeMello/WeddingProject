@@ -30,3 +30,7 @@ export const guestCreationLimiter = (env: Env) =>
 /** Conta toda tentativa de upload, inclusive as inválidas e os retries. */
 export const photoUploadLimiter = (env: Env) =>
   ipLimiter(env.IP_MAX_UPLOADS_PER_WINDOW, 'Muitos envios a partir desta rede.');
+
+/** Galeria: miniaturas e polling de todos os convidados do salão passam pelo mesmo IP. */
+export const galleryLimiter = (env: Env) =>
+  ipLimiter(env.IP_MAX_GALLERY_PER_WINDOW, 'Muitas requisições a partir desta rede.');

@@ -11,6 +11,7 @@ import { sessionRoutes } from './routes/session.js';
 import { resolveWebDist, spaRoutes } from './spa.js';
 import { originCheck, securityHeaders } from './security.js';
 import { defaultStatFs, type StatFs } from './storage.js';
+import { galleryRoutes } from './routes/gallery.js';
 import { photoRoutes } from './routes/photos.js';
 
 export interface AppDeps {
@@ -44,6 +45,7 @@ export function createApp(deps: Omit<AppDeps, 'now' | 'statfs'> & { now?: () => 
   app.use(guestRoutes(full));
   app.use(sessionRoutes(full));
   app.use(photoRoutes(full));
+  app.use(galleryRoutes(full));
 
   app.use('/api', notFound);
 

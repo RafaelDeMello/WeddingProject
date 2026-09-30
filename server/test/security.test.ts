@@ -112,9 +112,10 @@ describe('rate limit de criação de convidado por IP', () => {
   });
 
   it('usa os padrões (150 convidados, 1000 uploads por IP) quando as envs não são definidas', async () => {
-    const { IP_MAX_GUESTS_PER_WINDOW, IP_MAX_UPLOADS_PER_WINDOW, ...rest } = baseEnv;
+    const { IP_MAX_GUESTS_PER_WINDOW, IP_MAX_UPLOADS_PER_WINDOW, IP_MAX_GALLERY_PER_WINDOW, ...rest } = baseEnv as Record<string, string>;
     const env = parseEnv(rest);
     expect(env.IP_MAX_GUESTS_PER_WINDOW).toBe(150);
     expect(env.IP_MAX_UPLOADS_PER_WINDOW).toBe(1000);
+    expect(env.IP_MAX_GALLERY_PER_WINDOW).toBe(100000);
   });
 });
