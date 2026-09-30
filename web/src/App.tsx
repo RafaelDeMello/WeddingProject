@@ -5,7 +5,6 @@ import { MockPanel } from './components/MockPanel';
 import { NameForm } from './components/NameForm';
 import { slugFromPath } from './slug';
 
-
 type State =
   | { kind: 'loading' }
   | { kind: 'load_error'; message: string }
@@ -127,6 +126,8 @@ export function App() {
           <GuestHome
             key={session.guestId}
             session={session}
+            eventName={event.name}
+            eventOpensAt={event.opensAt}
             onLoggedOut={() => setState({ kind: 'event', event, session: null })}
             onSessionError={onServerError}
           />
