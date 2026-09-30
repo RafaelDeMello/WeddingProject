@@ -21,3 +21,6 @@ export function eventInfo(env: Env, now: Date) {
     },
   };
 }
+
+export const closedMessage = (status: EventStatus) =>
+  status === 'not_open' ? 'O envio de fotos ainda não abriu.' : 'O envio de fotos já foi encerrado.';

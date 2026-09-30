@@ -11,17 +11,16 @@ export function sendError(
 }
 
 /** 429 padrão: `retryAfterSeconds` no corpo e header `Retry-After`. */
-export function sendRateLimited(res: Response, retryAfterSeconds: number, reason: string) {
+export function sendRateLimited(
+  res: Response,
+  retryAfterSeconds: number,
+  message: string,
+  { code = 'rate_limited', appendWait = true }: { code?: string; appendWait?: boolean } = {},
+) {
   const seconds = Math.max(1, Math.ceil(retryAfterSeconds));
-  const minutes = Math.ceil(seconds / 60);
+  const full = appendWait ? `${message} Tente novamente em ${Math.ceil(seconds / 60)} min.` : message;
   res.set('Retry-After', String(seconds));
-  return sendError(
-    res,
-    429,
-    'rate_limited',
-    `${reason} Tente novamente em ${minutes} min.`,
-    { retryAfterSeconds: seconds },
-  );
+  return sendError(res, 429, code, full, { retryAfterSeconds: seconds });
 }
 
 export const notFound: RequestHandler = (_req, res) => {

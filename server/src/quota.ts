@@ -29,3 +29,30 @@ export async function getQuota(db: Db, env: Env, guestId: string, now: Date): Pr
     resetsAt: oldestInWindow ? new Date(oldestInWindow.createdAt.getTime() + windowMs).toISOString() : null,
   };
 }
+
+export interface QuotaBlock {
+  code: 'quota_exceeded' | 'total_quota_exceeded';
+  message: string;
+  retryAfterSeconds: number;
+}
+
+/** null se o convidado ainda pode enviar; senão, o 429 que deve ser devolvido. */
+export function quotaBlock(quota: Quota, env: Env, now: Date): QuotaBlock | null {
+  if (quota.remainingTotal <= 0) {
+    return {
+      code: 'total_quota_exceeded',
+      message: 'Você atingiu o limite total de fotos.',
+      // Não volta a liberar: o "tente novamente" é até o fim do evento.
+      retryAfterSeconds: Math.max(1, Math.ceil((env.UPLOAD_CLOSES_AT.getTime() - now.getTime()) / 1000)),
+    };
+  }
+  if (quota.remainingInWindow <= 0) {
+    const resetsAt = quota.resetsAt ? Date.parse(quota.resetsAt) : now.getTime() + env.GUEST_WINDOW_MINUTES * 60_000;
+    return {
+      code: 'quota_exceeded',
+      message: 'Você atingiu o limite de fotos.',
+      retryAfterSeconds: Math.max(1, Math.ceil((resetsAt - now.getTime()) / 1000)),
+    };
+  }
+  return null;
+}

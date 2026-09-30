@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { createPrisma, ensureDataDirs, initDb } from './db.js';
 import { EnvError, parseEnv } from './env.js';
 import { createLogger } from './logger.js';
+import { cleanTmp } from './storage.js';
 
 async function main() {
   let env;
@@ -17,6 +18,7 @@ async function main() {
 
   const logger = createLogger(env.NODE_ENV);
   await ensureDataDirs(env.DATA_DIR);
+  await cleanTmp(env.DATA_DIR);
   const prisma = createPrisma(env.DATABASE_URL);
   const journalMode = await initDb(prisma);
   if (journalMode !== 'wal') logger.warn({ journalMode }, 'SQLite não está em modo WAL');

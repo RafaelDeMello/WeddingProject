@@ -4,8 +4,17 @@ import { PrismaClient } from '@prisma/client';
 
 export const BUSY_TIMEOUT_MS = 5000;
 
+/**
+ * SQLite tem um único escritor: com uma só conexão, o busy_timeout (por conexão) sempre vale
+ * e as transações da cota não disputam o arquivo entre si.
+ */
+export function withConnectionLimit(databaseUrl: string): string {
+  if (/[?&]connection_limit=/.test(databaseUrl)) return databaseUrl;
+  return `${databaseUrl}${databaseUrl.includes('?') ? '&' : '?'}connection_limit=1`;
+}
+
 export function createPrisma(databaseUrl: string): PrismaClient {
-  return new PrismaClient({ datasourceUrl: databaseUrl });
+  return new PrismaClient({ datasourceUrl: withConnectionLimit(databaseUrl) });
 }
 
 /** Ativa WAL (persistente no arquivo) e busy_timeout. Retorna o journal_mode resultante. */

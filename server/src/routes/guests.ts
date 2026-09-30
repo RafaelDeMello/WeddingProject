@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { sendError } from '../errors.js';
-import { eventStatus } from '../event.js';
+import { closedMessage, eventStatus } from '../event.js';
 import { guestNameSchema } from '../guestName.js';
 import { getQuota } from '../quota.js';
 import { guestCreationLimiter } from '../rateLimit.js';
@@ -30,9 +30,7 @@ export function guestRoutes({ env, prisma, now }: AppDeps) {
     const at = now();
     const status = eventStatus(env, at);
     if (status !== 'open') {
-      const message =
-        status === 'not_open' ? 'O envio de fotos ainda não abriu.' : 'O envio de fotos já foi encerrado.';
-      return sendError(res, 403, 'upload_closed', message);
+      return sendError(res, 403, 'upload_closed', closedMessage(status));
     }
 
     // Recarregar a página ou tocar duas vezes não cria outro convidado.
