@@ -18,10 +18,30 @@ export interface GalleryState {
   lastServerTime: string | null;
   /** Ocultadas pela moderação: uma página atrasada não as traz de volta; um `added` sim (reexibida). */
   removed: ReadonlySet<string>;
+  /**
+   * Apagadas pelo próprio convidado. Permanente: nem um `added` de uma resposta pedida antes
+   * do DELETE (sobreposição de 30 s) traz de volta.
+   */
+  deleted: ReadonlySet<string>;
+  /** Apagando agora (remoção otimista): id → item guardado para voltar se o DELETE falhar. */
+  deleting: ReadonlyMap<string, GalleryItem | null>;
 }
 
 export function initialGalleryState(): GalleryState {
-  return { items: [], nextCursor: null, firstPageLoaded: false, lastServerTime: null, removed: new Set() };
+  return {
+    items: [],
+    nextCursor: null,
+    firstPageLoaded: false,
+    lastServerTime: null,
+    removed: new Set(),
+    deleted: new Set(),
+    deleting: new Map(),
+  };
+}
+
+/** Ids que não podem aparecer na grade agora. */
+export function hiddenIds(state: GalleryState): ReadonlySet<string> {
+  return new Set([...state.removed, ...state.deleted, ...state.deleting.keys()]);
 }
 
 function byNewest(a: GalleryItem, b: GalleryItem): number {
@@ -31,10 +51,10 @@ function byNewest(a: GalleryItem, b: GalleryItem): number {
 }
 
 /** Junta itens por id (o mais novo recebido prevalece) e reordena. */
-function upsert(current: GalleryItem[], incoming: GalleryItem[], removed: ReadonlySet<string>): GalleryItem[] {
+function upsert(current: GalleryItem[], incoming: GalleryItem[], hidden: ReadonlySet<string>): GalleryItem[] {
   const map = new Map(current.map((i) => [i.id, i]));
   for (const item of incoming) {
-    if (!removed.has(item.id)) map.set(item.id, item);
+    if (!hidden.has(item.id)) map.set(item.id, item);
   }
   return [...map.values()].sort(byNewest);
 }
@@ -44,7 +64,7 @@ function upsert(current: GalleryItem[], incoming: GalleryItem[], removed: Readon
  * serverTime da resposta; sem ele, o createdAt mais recente; galeria vazia, `fallbackSince` (abertura do evento).
  */
 export function applyPage(state: GalleryState, page: GalleryPage, fallbackSince: string): GalleryState {
-  const items = upsert(state.items, page.items, state.removed);
+  const items = upsert(state.items, page.items, hiddenIds(state));
   let lastServerTime = state.lastServerTime;
   if (!state.firstPageLoaded && lastServerTime === null) {
     const newest = page.items.reduce<string | null>(
@@ -61,11 +81,16 @@ export function applyUpdates(state: GalleryState, updates: GalleryUpdates): Gall
   for (const id of updates.removedIds) removed.add(id);
   // Foto reexibida volta como `added`: deixa de contar como removida.
   for (const item of updates.added) removed.delete(item.id);
+  // Chegou versão nova de uma foto sendo apagada: guarda (volta se o DELETE falhar), sem mostrar.
+  let deleting = state.deleting;
+  for (const item of updates.added) {
+    if (deleting.has(item.id)) deleting = new Map(deleting).set(item.id, item);
+  }
+  const next = { ...state, removed, deleting };
   const kept = state.items.filter((i) => !removed.has(i.id));
   return {
-    ...state,
-    items: upsert(kept, updates.added, removed),
-    removed,
+    ...next,
+    items: upsert(kept, updates.added, hiddenIds(next)),
     // Nunca volta: com a sobreposição, um lote já recebido pode voltar com um corte anterior.
     lastServerTime: laterOf(state.lastServerTime, updates.serverTime),
   };
@@ -73,6 +98,41 @@ export function applyUpdates(state: GalleryState, updates: GalleryUpdates): Gall
 
 function laterOf(a: string | null, b: string): string {
   return a !== null && Date.parse(a) > Date.parse(b) ? a : b;
+}
+
+// ---------- Apagar a própria foto (remoção otimista) ----------
+
+/** Tira a foto da grade na hora e guarda o item para voltar se o DELETE falhar. */
+export function beginDelete(state: GalleryState, id: string): GalleryState {
+  if (state.deleting.has(id) || state.deleted.has(id)) return state;
+  const item = state.items.find((i) => i.id === id) ?? null;
+  return {
+    ...state,
+    items: state.items.filter((i) => i.id !== id),
+    deleting: new Map(state.deleting).set(id, item),
+  };
+}
+
+export type DeleteOutcome = 'deleted' | 'failed';
+
+/** 204 ou 404 (não existe mais / não é sua) → apagada; qualquer outra falha → volta. */
+export function deleteOutcome(error: unknown): DeleteOutcome {
+  if (error === null || error === undefined) return 'deleted';
+  return (error as { status?: unknown }).status === 404 ? 'deleted' : 'failed';
+}
+
+export function finishDelete(state: GalleryState, id: string, outcome: DeleteOutcome): GalleryState {
+  if (!state.deleting.has(id)) return state;
+  const saved = state.deleting.get(id) ?? null;
+  const deleting = new Map(state.deleting);
+  deleting.delete(id);
+  if (outcome === 'deleted') {
+    return { ...state, deleting, deleted: new Set(state.deleted).add(id) };
+  }
+  // Falhou: volta, a não ser que a moderação a tenha removido nesse meio-tempo.
+  const next = { ...state, deleting };
+  if (!saved || state.removed.has(id)) return next;
+  return { ...next, items: upsert(state.items, [saved], hiddenIds(next)) };
 }
 
 /** A resposta mudou algo além do que já se sabia (foto nova ou remoção nova)? */
@@ -151,20 +211,24 @@ export type GridEntry =
 
 /**
  * Grade = fotos locais (mais recentes primeiro) + itens do servidor.
- * Uma local cujo serverId já chegou da galeria (ou foi removido pela moderação) sai da grade:
- * o item real a substitui sem duplicar. `superseded` lista as locais a descartar (liberar URL).
+ * Uma local cujo serverId já chegou da galeria, foi removido pela moderação ou apagado pelo
+ * convidado sai da grade: `superseded` lista as locais a descartar (liberar URL).
+ * Sendo apagada agora (`deleting`), só some da tela: volta se o DELETE falhar.
  */
 export function mergeGrid(
   items: readonly GalleryItem[],
   locals: readonly LocalPhoto[],
-  removed: ReadonlySet<string>,
+  gone: ReadonlySet<string>,
+  deleting: ReadonlySet<string> = new Set(),
 ): { entries: GridEntry[]; superseded: string[] } {
   const serverIds = new Set(items.map((i) => i.id));
   const superseded: string[] = [];
   const localEntries: GridEntry[] = [];
   for (const local of [...locals].sort((a, b) => b.createdAt - a.createdAt)) {
-    if (local.serverId !== null && (serverIds.has(local.serverId) || removed.has(local.serverId))) {
+    if (local.serverId !== null && (serverIds.has(local.serverId) || gone.has(local.serverId))) {
       superseded.push(local.clientUploadId);
+    } else if (local.serverId !== null && deleting.has(local.serverId)) {
+      continue;
     } else {
       localEntries.push({ kind: 'local', key: `local-${local.clientUploadId}`, local });
     }
