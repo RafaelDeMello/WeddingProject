@@ -6,7 +6,9 @@ Casamento em **03/10/2026**. Os convidados escaneiam um QR Code impresso nas mes
 
 Prazo real: precisa estar **funcionando e testado em produção até quinta-feira à noite**. Priorize confiabilidade sobre features. O front-end deve ser **funcional e simples**; o visual será refinado depois. O foco agora é o fluxo completo funcionando de ponta a ponta com todas as proteções abaixo.
 
-**Fora de escopo:** galeria para convidados, vídeos, telão ao vivo, curtidas, login de convidado, upload de várias fotos da galeria do celular.
+**Fora de escopo:** vídeos, telão ao vivo, curtidas, login de convidado, upload de várias fotos da galeria do celular.
+
+**Galeria compartilhada (dentro do escopo desde 2026-09-30):** todos os convidados com sessão veem as fotos enviadas por todos, em tempo quase real (polling). Fotos ocultas pela moderação nunca aparecem nem são servidas.
 
 ## Regras para o agente
 
@@ -84,9 +86,19 @@ Todas as respostas em JSON, erros no formato `{ error: { code, message } }`.
 - `POST /api/photos` — requer sessão, multipart com `photo` e `clientUploadId`.
   - Retorna `201 { id, quota }`. Se o `clientUploadId` já existir para esse guest, retorna `200` com a foto já existente (idempotente, **não** conta de novo na cota).
 
+**Galeria** (requer sessão de convidado; sem sessão → 401)
+
+```ts
+GalleryItem = { id, guestName, createdAt, thumbUrl, photoUrl, mine: boolean }
+```
+
+- `GET /api/gallery?cursor=&limit=30` → `{ items: GalleryItem[], nextCursor: string | null }`, mais recentes primeiro, **sem fotos ocultas**. `mine` é `true` nas fotos do próprio convidado.
+- `GET /api/gallery/updates?since=<ISO>` → `{ added: GalleryItem[], removedIds: string[], serverTime: string }`. `added` = fotos visíveis criadas depois de `since`; `removedIds` = fotos ocultadas depois de `since`. O front usa `serverTime` como o próximo `since`.
+- `GET /api/gallery/photos/:id/thumb` e `GET /api/gallery/photos/:id` → o arquivo. Foto oculta ou inexistente → **404**. `Cache-Control: private` com cache curto.
+
 **Admin** (HTTP Basic Auth, credenciais em env — funciona direto no navegador para baixar o ZIP)
 
-- `GET /admin` → página HTML simples com contagem total, lista paginada de miniaturas (nome do convidado + horário) e botão de download.
+- `GET /admin` → página HTML de moderação, **usável no celular** e **sem script inline** (CSP): contagem total, grade das fotos mais recentes (miniatura + nome do convidado + horário) com atualização periódica, botão ocultar/reexibir em cada foto e botão de download do ZIP.
 - `GET /api/admin/photos?cursor=` → lista paginada.
 - `GET /api/admin/photos/:id` e `GET /api/admin/photos/:id/thumb` → arquivos.
 - `PATCH /api/admin/photos/:id { hidden: boolean }` → ocultar/reexibir (soft delete).
@@ -174,7 +186,7 @@ Nomes de arquivo sempre gerados pelo servidor (UUID). Nunca usar input do usuár
 - **helmet** com CSP restritiva. Permitir `blob:` e `data:` em `img-src` para o preview. Incluir `Permissions-Policy: camera=(self)`.
 - **Validação com Zod** em todo input. Nome: trim, NFC, remover caracteres de controle, 1–40 caracteres.
 - **Admin:** Basic Auth com comparação `crypto.timingSafeEqual`, rate limit em falhas, `Cache-Control: no-store`.
-- Fotos **nunca** acessíveis publicamente; só via rotas admin autenticadas. Sem `express.static` sobre `/data`.
+- Fotos **nunca** acessíveis publicamente: só para **convidados com sessão válida** (rotas `/api/gallery/*`, sem fotos ocultas) e para o **admin autenticado** (rotas `/api/admin/*`, inclusive as ocultas). Sem `express.static` sobre `/data`; nomes de arquivo vêm do banco, nunca de input. Como a sessão é criada por quem tem o link do QR (slug), a galeria é tão privada quanto o QR: não divulgar o link fora da festa.
 - `express.json({ limit: '10kb' })`.
 - Logs estruturados (pino) sem conteúdo de imagem e sem IP em claro.
 - **Container:** usuário não-root, filesystem read-only exceto `/data` e `/tmp`, `mem_limit: 1g`, `cpus: 1`, `restart: unless-stopped`, healthcheck em `/api/health`.
@@ -287,7 +299,7 @@ Script de carga (`scripts/loadtest`, k6 ou autocannon): 50 convidados enviando f
 1. Scaffold do monorepo, validação de env, Prisma + migração, `/api/health`.
 2. Guests + sessão + `/api/event` + `/api/me`.
 3. Upload completo: validação, sharp, cotas, idempotência, disco. Com testes.
-4. Admin: listagem, thumbs, ocultar, ZIP.
+4. Galeria para convidados (endpoints), depois admin de moderação (grade no celular, ocultar/reexibir) e ZIP em streaming.
 5. Front funcional: nome → câmera + fallback → compressão → preview → envio com retry.
 6. Dockerfile, compose, `.env.example`, README de deploy.
 7. Backup e loadtest.
@@ -300,5 +312,5 @@ Ao final de cada etapa, rodar os testes, me reportar o que foi feito e o que fal
 - Foto enviada aparece no `/admin` em até 2 segundos.
 - Limites respeitados sob concorrência.
 - ZIP baixa todas as fotos organizadas por convidado.
-- Nenhuma foto acessível sem autenticação admin.
+- Nenhuma foto acessível sem sessão de convidado (galeria) ou autenticação admin; foto oculta não é servida a convidados.
 - Backup chegando no remoto.

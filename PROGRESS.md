@@ -415,3 +415,43 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Mudança de escopo — galeria compartilhada entre convidados (e nova Fase 4)
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída (só documentação; a implementação é a nova Fase 4)
+
+### O que foi feito
+- `AGENTS.md` atualizado a pedido do usuário:
+  - **Contexto:** "galeria para convidados" deixa de estar em "Fora de escopo"; parágrafo novo descreve a galeria compartilhada (convidados com sessão veem as fotos de todos, em tempo quase real por polling; fotos ocultas nunca aparecem nem são servidas).
+  - **API:** bloco novo **Galeria** com o contrato: `GalleryItem = { id, guestName, createdAt, thumbUrl, photoUrl, mine }`; `GET /api/gallery?cursor=&limit=30` → `{ items, nextCursor }` (mais recentes primeiro, sem ocultas); `GET /api/gallery/updates?since=<ISO>` → `{ added, removedIds, serverTime }`; `GET /api/gallery/photos/:id/thumb` e `/:id` (oculta ou inexistente → 404; `Cache-Control: private` com cache curto). Todas exigem sessão (401 sem ela). A descrição do `/admin` passou a ser a página de moderação (celular, grade, atualização periódica, ocultar/reexibir, sem script inline).
+  - **Segurança:** "fotos nunca acessíveis publicamente" agora permite **convidados com sessão** (`/api/gallery/*`, sem ocultas) e **admin** (`/api/admin/*`, com ocultas); registrado que a galeria é tão privada quanto o link do QR.
+  - **Ordem de implementação, item 4:** galeria (endpoints) → admin de moderação → ZIP em streaming.
+  - **Critérios de aceite:** "nenhuma foto acessível sem sessão de convidado (galeria) ou autenticação admin; foto oculta não é servida a convidados".
+
+### Decisões tomadas
+- Prioridade da nova Fase 4: (1) endpoints da galeria com testes; (2) admin de moderação (Basic Auth com `timingSafeEqual`, rate limit de falhas, `no-store`, `/admin` usável no celular, sem script inline); (3) `GET /api/admin/export.zip` em streaming com `archiver`, pastas por convidado e `_ocultas/`, testado com muitas fotos sem estourar a memória.
+- O front (`web/`) implementa o contrato da galeria; esta fase trabalha só em `server/` (e na raiz, se necessário).
+
+### Desvios da especificação
+- **Mudança de escopo aprovada pelos noivos/usuário:** galeria compartilhada entre convidados (antes fora de escopo). Motivo: decisão dos noivos de todos verem as fotos em tempo quase real.
+
+### Arquivos principais
+- `AGENTS.md` — escopo, API, segurança, ordem de implementação e critérios de aceite
+
+### Como rodar / testar
+- Não se aplica (só documentação).
+
+### Testes
+- Nenhum teste alterado; suítes em 174 (server) + 45 (web) passando.
+
+### Pendências para a próxima fase
+- Implementar a Fase 4 conforme a aprovação do entendimento (a apresentar).
+- `README.md` (seção 8) ainda diz que as fotos "não são servidas pelo Express": atualizar quando a galeria e o admin existirem.
+- **Risco de privacidade:** a sessão é criada por qualquer pessoa que tenha o link do QR (slug), então a galeria expõe nome e foto de todos a quem tiver o link; a sessão dura até 1 dia depois de `UPLOAD_CLOSES_AT`. Orientar para não divulgar o link fora da festa.
+- **Produção já está no ar** (PROGRESS, Fase 5): a Fase 4 deve ser implantada fora do horário da festa; migrações aditivas, e a imagem antiga continua compatível com o banco novo.
+
+### Bugs relacionados
+- Nenhum.
