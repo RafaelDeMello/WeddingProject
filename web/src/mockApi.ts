@@ -1,14 +1,30 @@
 // API simulada para desenvolver o front sem backend (VITE_MOCK_API=true)
 // ou sem o endpoint de upload (VITE_MOCK_API=photos).
 import { uuidv4 } from './uuid';
-import { ApiError, networkError, type Api, type EventStatus, type GuestSession, type Quota } from './api';
+import {
+  ApiError,
+  QUOTA_EXCEEDED,
+  RATE_LIMITED,
+  TOTAL_QUOTA_EXCEEDED,
+  networkError,
+  type Api,
+  type EventStatus,
+  type GuestSession,
+  type Quota,
+} from './api';
 
 export type UploadScenario =
   | 'success' // 201 (ou 200 se o clientUploadId já foi recebido)
   | 'network_flaky' // cada foto falha 2 tentativas por rede e depois passa (exercita o retry)
   | 'network_down' // toda tentativa falha por rede
   | 'server_error' // 500 em toda tentativa
-  | 'rate_limited' // 429 com retryAfterSeconds
+  | 'quota_exceeded' // 429 cota da janela, com retryAfterSeconds
+  | 'total_quota_exceeded' // 429 cota total (não volta a liberar)
+  | 'rate_limited' // 429 limite por IP
+  | 'file_too_large' // 413
+  | 'unsupported_media_type' // 415
+  | 'invalid_image' // 422
+  | 'insufficient_storage' // 507
   | 'upload_closed'; // 403 upload_closed
 
 export const UPLOAD_SCENARIOS: { value: UploadScenario; label: string }[] = [
@@ -16,7 +32,13 @@ export const UPLOAD_SCENARIOS: { value: UploadScenario; label: string }[] = [
   { value: 'network_flaky', label: 'Rede instável (falha 2x)' },
   { value: 'network_down', label: 'Sem rede' },
   { value: 'server_error', label: 'Erro 500' },
-  { value: 'rate_limited', label: 'Limite (429)' },
+  { value: 'quota_exceeded', label: 'Cota da janela (429)' },
+  { value: 'total_quota_exceeded', label: 'Cota total (429)' },
+  { value: 'rate_limited', label: 'Limite por rede (429)' },
+  { value: 'file_too_large', label: 'Grande demais (413)' },
+  { value: 'unsupported_media_type', label: 'Formato (415)' },
+  { value: 'invalid_image', label: 'Imagem inválida (422)' },
+  { value: 'insufficient_storage', label: 'Sem espaço (507)' },
   { value: 'upload_closed', label: 'Encerrado (403)' },
 ];
 
@@ -76,9 +98,10 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
     return new ApiError(403, 'upload_closed', 'O envio de fotos já foi encerrado.');
   }
 
-  function rateLimited(retryAfterSeconds: number): ApiError {
+  // Mesmos códigos do servidor (server/src/quota.ts e rateLimit.ts).
+  function tooMany(code: string, retryAfterSeconds: number): ApiError {
     const seconds = Math.max(1, Math.ceil(retryAfterSeconds));
-    return new ApiError(429, 'rate_limited', 'Limite de fotos atingido.', seconds);
+    return new ApiError(429, code, 'Limite de fotos atingido.', seconds);
   }
 
   const api: Api = {
@@ -141,8 +164,20 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
         }
         case 'server_error':
           throw new ApiError(500, 'internal_error', 'Erro interno.');
+        case 'quota_exceeded':
+          throw tooMany(QUOTA_EXCEEDED, 7 * 60);
+        case 'total_quota_exceeded':
+          throw tooMany(TOTAL_QUOTA_EXCEEDED, 3 * 86_400);
         case 'rate_limited':
-          throw rateLimited(7 * 60);
+          throw tooMany(RATE_LIMITED, 4 * 60);
+        case 'file_too_large':
+          throw new ApiError(413, 'file_too_large', 'Arquivo grande demais.');
+        case 'unsupported_media_type':
+          throw new ApiError(415, 'unsupported_media_type', 'Formato não suportado.');
+        case 'invalid_image':
+          throw new ApiError(422, 'invalid_image', 'Imagem inválida.');
+        case 'insufficient_storage':
+          throw new ApiError(507, 'insufficient_storage', 'Sem espaço em disco.');
         case 'upload_closed':
           throw closedError();
         case 'success':
@@ -154,9 +189,10 @@ export function createMockApi(options: MockOptions = {}): { api: Api; control: M
       if (existing) return { id: existing.id, quota: quota(), duplicate: true };
 
       const current = quota();
+      if (current.remainingTotal <= 0) throw tooMany(TOTAL_QUOTA_EXCEEDED, 3 * 86_400);
       if (current.remainingInWindow <= 0) {
         const resetsAt = current.resetsAt ? Date.parse(current.resetsAt) : now() + windowMs;
-        throw rateLimited(current.remainingTotal <= 0 ? windowMs / 1000 : (resetsAt - now()) / 1000);
+        throw tooMany(QUOTA_EXCEEDED, (resetsAt - now()) / 1000);
       }
       const created = { id: uuidv4(), createdAt: now() };
       photos.set(`${owner()}:${clientUploadId}`, { ...created, owner: owner() });

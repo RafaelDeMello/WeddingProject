@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, errorMessage, isRetryable, rateLimitMessage, type ApiError, type GuestSession, type Quota } from '../api';
+import {
+  TOTAL_QUOTA_MESSAGE,
+  api,
+  errorMessage,
+  isRetryable,
+  isTotalQuotaError,
+  rateLimitMessage,
+  type ApiError,
+  type GuestSession,
+  type Quota,
+} from '../api';
 import { clearPending, loadPending, pendingStoreFor } from '../pendingStore';
 import { UploadQueue, type QueueItem } from '../uploadQueue';
 import { CameraView } from './CameraView';
@@ -44,7 +54,9 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
         store: pendingStoreFor(session.guestId),
         onFailed: (error) => {
           if (error.status === 401 || error.code === 'upload_closed') onSessionErrorRef.current(error);
-          else if (error.status === 429) setNotice(rateLimitMessage(error.retryAfterSeconds));
+          // Total esgotado: zera a cota local, e a tela mostra "já enviou o máximo" (nunca "tente em X min").
+          else if (isTotalQuotaError(error)) setQuota((q) => ({ ...q, remainingInWindow: 0, remainingTotal: 0 }));
+          else if (error.status === 429) setNotice(errorMessage(error));
         },
       }),
   );
@@ -103,7 +115,7 @@ export function GuestHome({ session, onLoggedOut, onSessionError }: Props) {
   const limitReached = remaining <= 0;
   const limitMessage =
     quota.remainingTotal - pending <= 0
-      ? 'Você já enviou o máximo de fotos. Muito obrigado!'
+      ? TOTAL_QUOTA_MESSAGE
       : rateLimitMessage(secondsUntil(quota.resetsAt));
 
   function send() {

@@ -92,6 +92,11 @@ describe('UploadQueue', () => {
 
   it.each([
     [429, 'rate_limited'],
+    [429, 'quota_exceeded'],
+    [429, 'total_quota_exceeded'],
+    [413, 'file_too_large'],
+    [415, 'unsupported_media_type'],
+    [422, 'invalid_image'],
     [403, 'upload_closed'],
     [401, 'unauthorized'],
     [400, 'invalid_image'],

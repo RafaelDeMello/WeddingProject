@@ -48,7 +48,7 @@ describe('mockApi', () => {
     await api.uploadPhoto(photo(), 'b');
     await api.uploadPhoto(photo(), 'c');
     const err = await api.uploadPhoto(photo(), 'd').catch((e: unknown) => e);
-    expect(err).toMatchObject({ status: 429, code: 'rate_limited', retryAfterSeconds: 9 * 60 });
+    expect(err).toMatchObject({ status: 429, code: 'quota_exceeded', retryAfterSeconds: 9 * 60 });
     clock += 9 * 60_000 + 1;
     await expect(api.uploadPhoto(photo(), 'd')).resolves.toMatchObject({ duplicate: false });
   });
@@ -76,13 +76,30 @@ describe('mockApi', () => {
 
   it('cenários 429, 403, 500 e sem rede', async () => {
     const { api, control } = setup();
+    control.scenario = 'quota_exceeded';
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'quota_exceeded', retryAfterSeconds: 420 });
+    control.scenario = 'total_quota_exceeded';
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'total_quota_exceeded' });
     control.scenario = 'rate_limited';
-    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, retryAfterSeconds: 420 });
+    await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 429, code: 'rate_limited' });
+    for (const [scenario, status] of [['file_too_large', 413], ['unsupported_media_type', 415], ['invalid_image', 422], ['insufficient_storage', 507]] as const) {
+      control.scenario = scenario;
+      await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status, code: scenario });
+    }
     control.scenario = 'upload_closed';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 403, code: 'upload_closed' });
     control.scenario = 'server_error';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 500 });
     control.scenario = 'network_down';
     await expect(api.uploadPhoto(photo(), 'a')).rejects.toMatchObject({ status: 0, code: NETWORK_ERROR });
+  });
+});
+
+describe('mockApi: cota total', () => {
+  it('esgotar o total → 429 total_quota_exceeded (não quota_exceeded)', async () => {
+    const { api } = createMockApi({ now: () => clock, delay: async () => undefined, perWindow: 10, total: 2 });
+    await api.uploadPhoto(photo(), 'a');
+    await api.uploadPhoto(photo(), 'b');
+    await expect(api.uploadPhoto(photo(), 'c')).rejects.toMatchObject({ status: 429, code: 'total_quota_exceeded' });
   });
 });

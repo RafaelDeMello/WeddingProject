@@ -3,7 +3,9 @@ import {
   ApiError,
   NETWORK_ERROR,
   createHttpApi,
+  canRetryManually,
   errorMessage,
+  isTotalQuotaError,
   isRetryable,
   parseApiError,
   parseMockMode,
@@ -142,5 +144,74 @@ describe('createHttpApi', () => {
   it('resposta não-JSON (502 do proxy) vira http_502', async () => {
     const api = createHttpApi(async () => new Response('<html>Bad Gateway</html>', { status: 502 }));
     await expect(api.getEvent()).rejects.toMatchObject({ status: 502, code: 'http_502' });
+  });
+});
+
+describe('erros do upload (códigos reais do servidor)', () => {
+  const e = (status: number, code: string, retryAfterSeconds?: number) =>
+    new ApiError(status, code, 'mensagem do servidor', retryAfterSeconds);
+  // total_quota_exceeded vem com retryAfter até o fim do evento (dias).
+  const total = e(429, 'total_quota_exceeded', 3 * 86_400);
+
+  it('429 total_quota_exceeded: "já enviou o máximo", nunca "tente em X min"', () => {
+    expect(errorMessage(total)).toBe('Você já enviou o máximo de fotos.');
+    expect(errorMessage(total)).not.toMatch(/min/);
+    expect(isTotalQuotaError(total)).toBe(true);
+    expect(isTotalQuotaError(e(429, 'quota_exceeded', 60))).toBe(false);
+  });
+
+  it('429 quota_exceeded: limite da janela em minutos', () => {
+    expect(errorMessage(e(429, 'quota_exceeded', 420))).toBe('Você atingiu o limite, tente novamente em 7 min.');
+  });
+
+  it('429 rate_limited: limite da rede em minutos', () => {
+    expect(errorMessage(e(429, 'rate_limited', 240))).toBe('Muitos acessos desta rede agora. Tente novamente em 4 min.');
+  });
+
+  it.each([
+    [413, 'file_too_large', 'A foto é grande demais.'],
+    [415, 'unsupported_media_type', 'Formato de imagem não suportado.'],
+    [422, 'invalid_image', 'Não foi possível ler essa imagem.'],
+    [507, 'insufficient_storage', 'Não foi possível salvar agora. Tente novamente mais tarde.'],
+    [400, 'missing_photo', 'mensagem do servidor'],
+  ])('%i %s → mensagem própria', (status, code, message) => {
+    expect(errorMessage(e(status, code))).toBe(message);
+  });
+
+  it('nenhuma mensagem manda procurar os noivos', () => {
+    for (const status of [400, 401, 403, 413, 415, 422, 429, 500, 502, 507]) {
+      expect(errorMessage(e(status, 'x', 60))).not.toMatch(/noiv/i);
+    }
+  });
+
+  it.each([
+    [429, 'total_quota_exceeded'],
+    [429, 'quota_exceeded'],
+    [429, 'rate_limited'],
+    [413, 'file_too_large'],
+    [415, 'unsupported_media_type'],
+    [422, 'invalid_image'],
+    [400, 'validation_error'],
+    [507, 'insufficient_storage'],
+  ])('%i %s não entra no retry automático', (status, code) => {
+    expect(isRetryable(e(status, code, 60))).toBe(false);
+  });
+
+  it('"Tentar de novo" manual só onde pode dar certo', () => {
+    expect(canRetryManually(e(429, 'quota_exceeded', 60))).toBe(true);
+    expect(canRetryManually(e(429, 'rate_limited', 60))).toBe(true);
+    expect(canRetryManually(e(507, 'insufficient_storage'))).toBe(true);
+    expect(canRetryManually(new ApiError(0, NETWORK_ERROR, 'x'))).toBe(true);
+    for (const [status, code] of [
+      [429, 'total_quota_exceeded'],
+      [413, 'file_too_large'],
+      [415, 'unsupported_media_type'],
+      [422, 'invalid_image'],
+      [400, 'validation_error'],
+      [401, 'unauthorized'],
+      [403, 'upload_closed'],
+    ] as const) {
+      expect(canRetryManually(e(status, code))).toBe(false);
+    }
   });
 });

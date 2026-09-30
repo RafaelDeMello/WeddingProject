@@ -88,19 +88,60 @@ export function isRetryable(err: unknown): boolean {
   return err.status >= 500 && err.status !== 507;
 }
 
-/** Mensagem do 429 conforme a spec, a partir de retryAfterSeconds. */
-export function rateLimitMessage(retryAfterSeconds: number | undefined): string {
-  if (!retryAfterSeconds) return 'Você atingiu o limite, tente novamente em alguns minutos.';
-  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `Você atingiu o limite, tente novamente em ${minutes} min.`;
+/** Códigos de 429 do servidor (server/src/quota.ts e rateLimit.ts). */
+export const TOTAL_QUOTA_EXCEEDED = 'total_quota_exceeded';
+export const QUOTA_EXCEEDED = 'quota_exceeded';
+export const RATE_LIMITED = 'rate_limited';
+
+export const TOTAL_QUOTA_MESSAGE = 'Você já enviou o máximo de fotos.';
+
+function minutesText(retryAfterSeconds: number | undefined): string {
+  if (!retryAfterSeconds) return 'alguns minutos';
+  return `${Math.max(1, Math.ceil(retryAfterSeconds / 60))} min`;
 }
 
-/** Texto amigável para mostrar ao convidado. */
+/** Mensagem da cota por janela, a partir de retryAfterSeconds. */
+export function rateLimitMessage(retryAfterSeconds: number | undefined): string {
+  return `Você atingiu o limite, tente novamente em ${minutesText(retryAfterSeconds)}.`;
+}
+
+export function isTotalQuotaError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 429 && err.code === TOTAL_QUOTA_EXCEEDED;
+}
+
+/** Texto amigável para mostrar ao convidado. Nunca manda procurar os noivos. */
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return GENERIC_MESSAGE;
-  if (err.status === 429) return rateLimitMessage(err.retryAfterSeconds);
   if (err.code === NETWORK_ERROR) return 'Sem conexão. Verifique a internet.';
-  return err.message;
+  switch (err.status) {
+    case 429:
+      // O total não volta a liberar: nunca "tente em X min" (o retryAfter vai até o fim do evento).
+      if (err.code === TOTAL_QUOTA_EXCEEDED) return TOTAL_QUOTA_MESSAGE;
+      if (err.code === RATE_LIMITED) {
+        return `Muitos acessos desta rede agora. Tente novamente em ${minutesText(err.retryAfterSeconds)}.`;
+      }
+      return rateLimitMessage(err.retryAfterSeconds);
+    case 413:
+      return 'A foto é grande demais.';
+    case 415:
+      return 'Formato de imagem não suportado.';
+    case 422:
+      return 'Não foi possível ler essa imagem.';
+    case 507:
+      return 'Não foi possível salvar agora. Tente novamente mais tarde.';
+    default:
+      return err.status >= 500 ? GENERIC_MESSAGE : err.message;
+  }
+}
+
+/**
+ * Oferecer "Tentar de novo" manual? Não quando repetir não tem como dar certo:
+ * total esgotado, arquivo recusado (400/413/415/422) ou sessão/evento (401/403/404).
+ */
+export function canRetryManually(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  if (err.code === NETWORK_ERROR || err.status >= 500) return true;
+  return err.status === 429 && err.code !== TOTAL_QUOTA_EXCEEDED;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;

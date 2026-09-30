@@ -1,4 +1,4 @@
-import { errorMessage } from '../api';
+import { canRetryManually, errorMessage } from '../api';
 import type { QueueItem } from '../uploadQueue';
 
 interface Props {
@@ -44,9 +44,11 @@ export function UploadList({ items, onRetry, onDiscard }: Props) {
             <span className="upload-status">{statusText(item)}</span>
             {(item.status === 'failed' || item.status === 'waiting_retry') && (
               <span className="upload-actions">
-                <button type="button" className="small" onClick={() => onRetry(item.clientUploadId)}>
-                  Tentar de novo
-                </button>
+                {(item.status === 'waiting_retry' || canRetryManually(item.error)) && (
+                  <button type="button" className="small" onClick={() => onRetry(item.clientUploadId)}>
+                    Tentar de novo
+                  </button>
+                )}
                 {item.status === 'failed' && (
                   <button type="button" className="small link" onClick={() => onDiscard(item.clientUploadId)}>
                     Descartar
