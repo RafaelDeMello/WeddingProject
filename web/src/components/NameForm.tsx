@@ -46,7 +46,7 @@ export function NameForm({ slug, eventName, onSession, onEventError }: Props) {
         autoComplete="name"
         autoCapitalize="words"
         enterKeyHint="go"
-        maxLength={80}
+        maxLength={40}
         value={name}
         onChange={(e) => setName(e.target.value)}
         disabled={sending}
