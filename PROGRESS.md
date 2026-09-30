@@ -261,3 +261,38 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Ajuste entre fases — spec atualizada e reordenação das fases
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída
+
+### O que foi feito
+- `AGENTS.md` atualizado para refletir o que foi aprovado na Fase 3: limites por IP de **1000 uploads** e **150 criações de convidado** a cada 10 min (antes 200 e 30), nova env `IP_MAX_GUESTS_PER_WINDOW=150` na lista de variáveis, e `mem_limit: 1g` no container (antes 512m).
+
+### Decisões tomadas
+- **Reordenação das fases por causa do prazo:** a Fase 4 (admin) fica para depois — as fotos ficam no disco e o admin só é necessário após o casamento. A próxima fase passa a ser a **Fase 6** (Docker, compose, `.env.example`, README de deploy e `scripts/reset-data`), que também inclui o `scripts/backup.sh` (antes na Fase 7). Ordem efetiva: 6 (+ backup) → 5 (front) → 4 (admin) → loadtest da 7.
+- A Fase 5 (front) continua indispensável antes do evento; o `/e/:slug` servindo o SPA é antecipado para a Fase 6.
+- `web/.env.local` entra no `.dockerignore`.
+
+### Desvios da especificação
+- **Ordem de implementação** diferente da seção "Ordem de implementação" do `AGENTS.md` (aprovado). O texto dessa seção não foi alterado; vale esta entrada.
+- Sem acesso ao admin até a Fase 4, baixar as fotos exige acesso à VPS (`docker cp` / o backup remoto do rclone).
+
+### Arquivos principais
+- `AGENTS.md` — tabela de limites, lista de envs e `mem_limit`
+
+### Como rodar / testar
+- Não se aplica (só documentação).
+
+### Testes
+- Nenhum teste alterado; a suíte continua em 141 passando.
+
+### Pendências para a próxima fase
+- Fase 6 (com backup e `/e/:slug`), conforme o entendimento a ser aprovado.
+- Risco a acompanhar: sem `/admin`, o único caminho para ver/baixar as fotos antes da Fase 4 é o backup no remoto e o acesso à VPS.
+
+### Bugs relacionados
+- Nenhum.

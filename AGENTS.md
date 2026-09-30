@@ -134,8 +134,8 @@ Todos configuráveis por env.
 |---|---|---|
 | Fotos por convidado por janela deslizante | 10 a cada 10 min | Contar via `Photo.createdAt` no banco (sobrevive a restart) |
 | Fotos por convidado no total | 150 | |
-| Uploads por IP | 200 a cada 10 min | **Generoso de propósito**: todos no Wi-Fi do salão (ou CGNAT do 4G) podem compartilhar o mesmo IP. É só proteção contra abuso, não a cota real |
-| Criação de convidado por IP | 30 a cada 10 min | |
+| Uploads por IP | 1000 a cada 10 min | **Generoso de propósito**: dezenas de convidados no Wi-Fi do salão (ou CGNAT do 4G) compartilham o mesmo IP. É só proteção contra abuso, não a cota real |
+| Criação de convidado por IP | 150 a cada 10 min | Mesma razão; env `IP_MAX_GUESTS_PER_WINDOW` |
 | Tentativas de login admin falhas por IP | 10 a cada 15 min | |
 | Janela de upload | `UPLOAD_OPENS_AT` → `UPLOAD_CLOSES_AT` | ISO 8601 com `-03:00`. Fora da janela: 403 `upload_closed` |
 | Tamanho máximo do arquivo | 8 MB | O cliente envia ~300 KB; a margem cobre o fallback |
@@ -177,7 +177,7 @@ Nomes de arquivo sempre gerados pelo servidor (UUID). Nunca usar input do usuár
 - Fotos **nunca** acessíveis publicamente; só via rotas admin autenticadas. Sem `express.static` sobre `/data`.
 - `express.json({ limit: '10kb' })`.
 - Logs estruturados (pino) sem conteúdo de imagem e sem IP em claro.
-- **Container:** usuário não-root, filesystem read-only exceto `/data` e `/tmp`, `mem_limit: 512m`, `cpus: 1`, `restart: unless-stopped`, healthcheck em `/api/health`.
+- **Container:** usuário não-root, filesystem read-only exceto `/data` e `/tmp`, `mem_limit: 1g`, `cpus: 1`, `restart: unless-stopped`, healthcheck em `/api/health`.
 - Segredos só via `.env` (nunca commitado). Fornecer `.env.example`.
 
 ## Variáveis de ambiente
@@ -194,7 +194,8 @@ UPLOAD_CLOSES_AT=2026-10-06T23:59:59-03:00
 GUEST_WINDOW_MINUTES=10
 GUEST_MAX_PER_WINDOW=10
 GUEST_MAX_TOTAL=150
-IP_MAX_UPLOADS_PER_WINDOW=200
+IP_MAX_UPLOADS_PER_WINDOW=1000
+IP_MAX_GUESTS_PER_WINDOW=150
 MAX_UPLOAD_BYTES=8388608
 MIN_FREE_DISK_MB=2048
 SESSION_SECRET=<openssl rand -hex 32>
