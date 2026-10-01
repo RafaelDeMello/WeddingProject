@@ -644,3 +644,71 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Bugs relacionados
 - Nenhum.
+
+---
+
+## [2026-09-30] Correção de teste — flakiness de EPERM no Windows (sem impacto no produto)
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída
+
+### O que foi feito
+- Depois do merge do PR #3, a suíte do server falhava de forma intermitente (cerca de 1 em cada 4 a 6 execuções completas) com `EPERM, Permission denied` ao apagar a pasta temporária do teste (`rmSync` no `cleanup` de `test/helpers.ts` e no `afterEach` de `test/resetData.test.ts`). O erro é atribuído ao último teste que rodou, por isso o teste "culpado" mudava a cada vez (`guests`, `resetData`…).
+- Causa: no Windows o SQLite/Prisma às vezes demora a soltar os arquivos do banco (`-wal`/`-shm`), só sob carga. Não existe na VPS (Linux) e não tem relação com o código do produto nem com o front mergeado.
+- Correção (só testes): novo `server/test/cleanup.ts` com `removeTempDir` — `rmSync` com `maxRetries: 10` e `retryDelay: 100` e, se ainda assim falhar, **melhor esforço** (ignora o erro; sobra uma pasta em `%TEMP%`, sem efeito nenhum). Usado em `test/helpers.ts`, `test/globalSetup.ts` e `test/resetData.test.ts`.
+
+### Decisões tomadas
+- Só o `maxRetries`/`retryDelay` não bastou: com ele ainda falharam 2 de 12 execuções (sempre no `afterEach` do `resetData`, mesmo com ~5 s de tentativas), então a limpeza passou a ser melhor esforço. Apagar pasta temporária de teste não deve reprovar teste.
+
+### Desvios da especificação
+- Nenhum.
+
+### Arquivos principais
+- `server/test/cleanup.ts`, `server/test/helpers.ts`, `server/test/globalSetup.ts`, `server/test/resetData.test.ts`
+
+### Como rodar / testar
+- `npm test -w server`.
+
+### Testes
+- **15 execuções seguidas da suíte completa do server: 15 passaram, 0 falharam** (303 testes cada). Antes da correção final: 10 de 12.
+
+### Pendências para a próxima fase
+- Nenhuma.
+
+### Bugs relacionados
+- Nenhum (falha de infraestrutura de teste, não do produto).
+
+---
+
+## [2026-09-30] Front — galeria real e "Apagar minha foto" (branch feat/web-galeria-real)
+
+**Ferramenta/modelo:** Claude Code (Opus 5.5)
+**Status:** concluída no front; pendente teste em aparelho real
+
+### O que foi feito
+- "Apagar minha foto" no visualizador (só fotos do convidado já enviadas), com confirmação no estilo do app ("Apagar esta foto da galeria?" / "Ela continua contando no seu limite de fotos.").
+- Remoção otimista: some da grade e do visualizador na hora; páginas e updates (sobreposição de 30 s) não a trazem de volta; se o DELETE falhar (exceto 404) ela volta, salvo se a moderação a removeu. 404 conta como apagada. Cota inalterada.
+- Reexibição pelo admin de foto apagada pelo dono: cada apagamento concluído recebe um número de sequência e cada consulta anota o valor de quando começou; `added` de consulta iniciada antes do fim do DELETE é ignorado, de consulta iniciada depois volta a mostrar a foto.
+- Mock do DELETE: sucesso, 404 e sem rede; a foto some para as outras sessões via removedIds.
+
+### Integração real (API na 3001, sem mock; duas sessões: localhost e 127.0.0.1)
+- Listagem, paginação (30 → 56), serverTime como primeiro since, since = serverTime − 30 s a cada 15 s, dedup, miniaturas e fotos com cookie, `mine` por sessão, foto de outro convidado chegando em ~10 s.
+- DELETE real: remoção na hora, 404 de foto/miniatura, 204 idempotente, 404 em foto alheia, cota inalterada, removedIds na outra sessão.
+
+### Desvios da especificação
+- Nenhum.
+
+### Testes
+- web: 139 passando. server: 252 passando.
+
+### Pendências
+- Teste em iPhone (Safari) e Android (Chrome): câmera, espelhamento, permissão ao reabrir a câmera.
+- Moderação pelo PATCH do admin quando existir (o front já trata removedIds e reexibição).
+- Observação: duas abas do mesmo convidado podem reenviar as pendentes uma da outra (servidor idempotente; a pílula "N enviadas" pode contar a mais).
+
+### Bugs relacionados
+- Nenhum.
+
+### Verificação pós-merge (PR #3, `2d4baba`) — registrada pelo Claude Code (Sonnet 5.5)
+- Código combinado: typecheck limpo; **139 testes no web e 303 no server, todos passando**; `npm run build` limpo (sem mock no bundle, sem `eval`).
+- O PATCH do admin (moderação) entra na parte 2b da Fase 4, entregue em seguida (entrada própria).
