@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { sqliteUrl } from '../src/db.js';
+import { removeTempDir } from './cleanup.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -37,5 +38,5 @@ export default function setup(project: TestProject) {
   });
   project.provide('webDist', webDist);
 
-  return () => rmSync(dir, { recursive: true, force: true });
+  return () => removeTempDir(dir);
 }

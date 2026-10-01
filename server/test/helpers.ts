@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { inject } from 'vitest';
@@ -7,6 +7,7 @@ import { createPrisma, ensureDataDirs, initDb, sqliteUrl } from '../src/db.js';
 import type { StatFs } from '../src/storage.js';
 import { parseEnv } from '../src/env.js';
 import { createLogger } from '../src/logger.js';
+import { removeTempDir } from './cleanup.js';
 
 export const baseEnv: Record<string, string> = {
   NODE_ENV: 'test',
@@ -53,7 +54,7 @@ export async function createTestContext(overrides: Record<string, string> = {}, 
 
   const cleanup = async () => {
     await prisma.$disconnect();
-    rmSync(dir, { recursive: true, force: true });
+    removeTempDir(dir);
   };
   return { app, env, prisma, journalMode, cleanup };
 }

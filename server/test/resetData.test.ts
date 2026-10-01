@@ -1,15 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { afterEach, describe, expect, inject, it } from 'vitest';
 import { sqliteUrl } from '../src/db.js';
+import { removeTempDir } from './cleanup.js';
 
 const script = path.resolve(import.meta.dirname, '../../scripts/reset-data.mjs');
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) removeTempDir(d);
 });
 
 /** Diretório de dados de mentira, com um banco migrado, 2 convidados, 2 fotos e arquivos. */
