@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Moderação — fotos do casamento</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+    <script src="/admin/admin.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-row">
+        <h1>Moderação</h1>
+        <p id="counts" class="counts" aria-live="polite">Carregando…</p>
+      </div>
+      <div class="topbar-row">
+        <a class="button primary" href="/api/admin/export.zip">Baixar todas as fotos (ZIP)</a>
+        <button type="button" id="refresh" class="button">Atualizar</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </header>
+
+    <main>
+      <ul id="grid" class="grid"></ul>
+      <p id="empty" class="empty" hidden>Nenhuma foto enviada ainda.</p>
+      <button type="button" id="more" class="button more" hidden>Carregar mais</button>
+      <noscript><p class="empty">Esta página precisa de JavaScript.</p></noscript>
+    </main>
+  </body>
+</html>

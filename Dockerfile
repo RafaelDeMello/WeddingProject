@@ -56,6 +56,8 @@ COPY server/package.json ./server/package.json
 COPY server/prisma ./server/prisma
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/web/dist ./web/dist
+# Página de moderação (/admin): arquivos estáticos servidos pelo Express, sem build.
+COPY server/admin-ui ./server/admin-ui
 COPY scripts/reset-data.mjs ./scripts/reset-data.mjs
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
