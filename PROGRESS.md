@@ -712,3 +712,54 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 ### Verificação pós-merge (PR #3, `2d4baba`) — registrada pelo Claude Code (Sonnet 5.5)
 - Código combinado: typecheck limpo; **139 testes no web e 303 no server, todos passando**; `npm run build` limpo (sem mock no bundle, sem `eval`).
 - O PATCH do admin (moderação) entra na parte 2b da Fase 4, entregue em seguida (entrada própria).
+
+---
+
+## [2026-09-30] Fase 4 (parte 2b, versão enxuta) — Moderação de emergência: PATCH e página `/admin`
+
+**Ferramenta/modelo:** Claude Code (Sonnet 5.5)
+**Status:** concluída (Fase 4 completa: galeria, DELETE do dono, login do admin, ZIP e moderação)
+
+### O que foi feito
+- **API do admin** (`server/src/adminPhotos.ts`, `server/src/routes/admin.ts`), atrás do mesmo Basic Auth/limite/`no-store`:
+  - `GET /api/admin/photos?cursor=&limit=` → `{ items: { id, guestName, createdAt, hidden, thumbUrl, photoUrl }[], nextCursor, counts: { total, hidden } }`, **inclui as ocultas**, mais recentes primeiro; `limit` 1–100 (padrão 60); cursor inválido → 400 `invalid_cursor`.
+  - `GET /api/admin/photos/:id` e `/:id/thumb` → arquivos, **inclusive de fotos ocultas**; inexistente, id inválido, arquivo ausente ou caminho fora de `DATA_DIR` → 404.
+  - `PATCH /api/admin/photos/:id { hidden }` → `200 { id, hidden }`. Ocultar grava `hiddenAt` e `visibilityChangedAt` (mesmo instante); reexibir zera `hiddenAt` e grava `visibilityChangedAt`. **Idempotente** (já no estado pedido → 200 sem mexer nos timestamps; escrita condicional, então PATCH simultâneos resultam numa única mudança). Corpo inválido → 400 `validation_error`; foto inexistente/id inválido → 404. Exige `Origin` válido (protege o admin de CSRF, já que Basic Auth não tem `SameSite`). **Reexibe também a foto apagada pelo dono** (comportamento aceito; o front já trata). Não altera a cota.
+- **Página `/admin`** em `server/admin-ui/` (`index.html`, `admin.js`, `admin.css`), servida atrás do login (401 sem credenciais, inclusive para o JS e o CSS), `no-store`, `noindex`:
+  - contagem (total / visíveis / ocultas), grade de 2 colunas no celular (3 e 5 em telas maiores) com as fotos mais recentes **incluindo as ocultas (esmaecidas, com selo "Oculta")**, botão **Ocultar/Reexibir** em cada uma (alvo de toque de 44 px), **Carregar mais**, **Atualizar** e atualização automática a cada 30 s (só com a aba visível), botão **Baixar todas as fotos (ZIP)**, toque na miniatura abre a foto inteira.
+  - **Sem script nem estilo inline** (CSP `script-src 'self'`/`style-src 'self'`); sem recursos externos; nomes de convidado entram só por `textContent` (nunca como HTML); todas as URLs são absolutas a partir de `location.origin` (a página não quebra se for aberta por um link com `usuario:senha@` na URL — descoberto no teste em navegador real).
+  - `Dockerfile`: `COPY server/admin-ui ./server/admin-ui`.
+- `AGENTS.md` (contrato do admin) e `README.md` (como usar `/admin` e o aviso de que reexibir traz de volta fotos apagadas pelo dono).
+
+### Decisões tomadas
+- Versão enxuta (aprovada): sem página de detalhe, sem filtros; atualização periódica a cada 30 s (opcional, incluída porque custa pouco). A atualização só recarrega o topo da lista e reaproveita os cartões já na tela, então as miniaturas não são rebaixadas (as respostas do admin são `no-store`).
+- Sem coluna nova para distinguir "apagada pelo dono" de "ocultada pelo admin" (aprovado): o README e a página avisam.
+- JS puro, sem build e sem dependência nova.
+
+### Desvios da especificação
+- Nenhum além do já aprovado (`/admin` como ferramenta de emergência em `server/admin-ui/`).
+
+### Arquivos principais
+- `server/src/adminPhotos.ts`, `server/src/routes/admin.ts`
+- `server/admin-ui/{index.html,admin.js,admin.css}`, `Dockerfile`
+- `server/test/adminPhotos.test.ts`, `server/test/adminUi.test.ts`
+
+### Como rodar / testar
+- `npm test`; abrir `https://fotos.example.com/admin` com `ADMIN_USER`/`ADMIN_PASSWORD`.
+
+### Testes
+- **38 testes novos** (28 da API, 10 da página); total **341 no server + 139 no web, todos passando** (3 execuções seguidas), typecheck e build limpos.
+- API: 401 sem credenciais/com credenciais erradas (nada muda); PATCH com `Origin` ausente ou de outro domínio → 403 mesmo com a senha certa; lista com ocultas, ordem, nome devolvido como veio (HTML não é interpretado), contagens, paginação de 130 fotos (60/60/10, sem repetir nem pular), limites e cursor inválido, banco vazio; arquivos de fotos ocultas, 404 (inexistente, id inválido, arquivo ausente, caminho fora de `DATA_DIR`); **ocultar** (200, timestamps iguais, some da galeria/foto/miniatura/updates dos convidados), **reexibir** (volta em `/gallery` e em `added`), **reexibir foto apagada pelo dono**, idempotência (ocultar 2×, reexibir visível), 6 PATCH simultâneos, 6 formas de corpo inválido, JSON malformado, id inexistente/inválido, cota inalterada, e o ZIP refletindo ocultar/reexibir (`_ocultas/`).
+- Página: 401 sem login em `/admin`, `/admin/`, `admin.js` e `admin.css`; HTML com CSP e `no-store`; sem script/estilo/handler inline nem recurso externo; tipos corretos dos assets; 404 para arquivos inexistentes; análise estática (`admin.js` sem `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write`/`eval`/`new Function`, nome via `textContent`; CSS sem `@import`/`url()`/`http`).
+- Mutações verificadas: ocultar regravando timestamps (1 falha), reexibir sem `visibilityChangedAt` (2), lista sem as ocultas (3).
+- **Navegador real (imagem Docker, read-only, não-root):** `/admin` abriu com as 5 fotos, a apagada pelo dono como "Oculta" esmaecida; miniaturas autenticadas chegaram (400 px); sem erros no console; **Ocultar** (PATCH 200, contagem "3 visíveis · 2 ocultas") e **Reexibir** (volta a "4 visíveis · 1 ocultas", igual ao servidor); o ZIP depois das ações trouxe a foto ocultada em `_ocultas/` e `unzip -tq` sem erros. Bug achado e corrigido nesse teste: abrir a página por link com `usuario:senha@` quebrava o `fetch` (URLs agora absolutas).
+- Não testado (limitação do painel): o layout visual em aparelho real e a rolagem com `loading="lazy"` (o painel estava em segundo plano; forcei o carregamento das miniaturas para validar o acesso autenticado).
+
+### Pendências para a próxima fase
+- Testar `/admin` num celular real (Safari/Chrome), preferencialmente pelos dados móveis, e o download do ZIP grande atrás do Caddy (streaming sem buffer; `encode gzip` não deve comprimir `application/zip`).
+- `ADMIN_MAX_FAILURES_PER_WINDOW=30` no `.env` de produção.
+- Deploy da Fase 4 fora do horário da festa: `git pull && docker compose up -d --build` (migração aditiva da galeria roda no start; nova dependência `archiver` e `server/admin-ui` já entram na imagem).
+- Fase 7 restante: `scripts/loadtest` (50 convidados) — agora também com a galeria (polling e miniaturas).
+
+### Bugs relacionados
+- Nenhum.

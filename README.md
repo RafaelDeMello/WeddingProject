@@ -316,6 +316,17 @@ https://fotos.example.com/api/admin/export.zip
 > do 4G é outro, não o do Wi-Fi do salão). Com a senha gerada por `openssl rand -base64 24`, adivinhar é inviável
 > de qualquer forma; o limite é só uma segunda camada.
 
+**Moderação de emergência (`/admin`).** Não há moderador na festa; a página existe para o caso de uma foto
+precisar sair da galeria rapidamente. Abra `https://fotos.example.com/admin` (mesmo usuário e senha do
+ZIP; no celular, de preferência pelos **dados móveis** — veja a nota abaixo). Ela mostra as fotos mais recentes
+(as ocultas ficam esmaecidas, com o selo "Oculta"), um botão **Ocultar / Reexibir** em cada uma, **Carregar mais**,
+**Atualizar** (e atualiza sozinha a cada 30 s) e o botão **Baixar todas as fotos (ZIP)**. Ocultar tira a foto da
+galeria de todos os convidados em poucos segundos; o arquivo continua no disco e no backup. A foto ocultada **não
+conta a menos** na cota do convidado.
+
+> ⚠️ **Reexibir também traz de volta fotos que o próprio convidado apagou.** Não existe distinção entre "apagada
+> pelo dono" e "ocultada pelo admin" — use o **Reexibir** só se tiver certeza.
+
 As fotos **nunca** são públicas: o Express só as entrega a convidados com sessão (galeria, **sem** as ocultas) e ao admin autenticado. Os arquivos ficam no disco e no backup.
 
 **Fotos apagadas pelos convidados e "Reexibir":** cada convidado pode apagar as próprias fotos pelo app
