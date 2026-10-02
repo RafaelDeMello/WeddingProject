@@ -145,7 +145,7 @@ export function App() {
 
 interface MessageProps {
   title: string;
-  /** Título em Great Vibes: só para textos curtos e decorativos (nome do evento, "Obrigado!"). */
+  /** Título em Pinyon Script: só para textos curtos e decorativos (nome do evento, "Obrigado!"). */
   script?: boolean;
   eyebrow?: string;
   children?: ReactNode;

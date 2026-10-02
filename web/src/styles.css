@@ -1,71 +1,74 @@
-/* Identidade do casamento. Sem estilos inline (CSP style-src 'self'); fontes servidas pelo próprio app. */
+/*
+ * Identidade das artes impressas do casamento (cardápio, placa de mesa, cartões de nome).
+ * Sem estilos inline (CSP style-src 'self'); fontes e SVGs servidos pelo próprio app.
+ * Contraste: todo texto ≥ 4,5:1. Pistache e verde-folha só em ornamentos e linhas.
+ */
 
 @font-face {
-  font-family: 'Cormorant Garamond';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('./fonts/cormorant-garamond-latin-600-normal.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Great Vibes';
+  font-family: 'Pinyon Script';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('./fonts/great-vibes-latin-400-normal.woff2') format('woff2');
+  src: url('./fonts/pinyon-script-latin-400-normal.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Inter';
+  font-family: 'Oranienbaum';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('./fonts/inter-latin-400-normal.woff2') format('woff2');
+  src: url('./fonts/oranienbaum-latin-400-normal.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Inter';
+  font-family: 'Courier Prime';
   font-style: normal;
-  font-weight: 500;
+  font-weight: 700;
   font-display: swap;
-  src: url('./fonts/inter-latin-500-normal.woff2') format('woff2');
+  src: url('./fonts/courier-prime-latin-700-normal.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Inter';
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/lora-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Lora';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url('./fonts/inter-latin-600-normal.woff2') format('woff2');
+  src: url('./fonts/lora-latin-600-normal.woff2') format('woff2');
 }
 
 :root {
   /* Paleta */
-  --verde-escuro: #4f6b40; /* texto, títulos, botão principal (texto branco) */
-  --verde-profundo: #3a5230; /* texto sobre blush / sálvia-claro */
-  --salvia: #8fa878; /* só detalhes e bordas — nunca texto */
-  --salvia-claro: #c9d6b8; /* fundos suaves e desativado */
-  --marfim: #f6f2e9; /* cartões */
-  --offwhite: #eeede7; /* fundo da página */
-  --dourado: #b8912f; /* só detalhes finos — nunca texto */
-  --blush: #efc4b8; /* secundário e confirmações */
-  --pessego: #f2b98e; /* acento pontual */
-  --erro: #a33a2a;
+  --branco: #ffffff; /* fundo */
+  --pistache: #b3d18b; /* listras, molduras, fundos — nunca texto */
+  --verde-folha: #7e9f52; /* linhas finas e ornamentos — nunca texto (3:1) */
+  --verde-texto: #4e6b2e; /* textos e botão principal com texto branco (6,1:1) */
+  --verde-profundo: #3e5724; /* texto sobre rosa (5,5:1) e sobre pistache (4,8:1) */
+  --rosa: #f9c9c9; /* cartões, selos, pílulas, botão secundário — texto sempre verde-profundo */
+  --erro: #a33a2a; /* 6,6:1 sobre branco; sobre rosa não (4,45:1) */
 
-  /* Faixas sobre o vídeo: escuras o bastante para texto marfim mesmo com imagem clara por trás. */
-  --faixa: rgba(24, 32, 20, 0.8);
+  /* Faixas e telas escuras (câmera, visualizador): texto branco ≥ 8:1 mesmo com imagem clara por trás. */
+  --escuro: #141b10;
+  --faixa: rgba(20, 27, 16, 0.8);
 
-  --font-texto: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-titulo: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
-  --font-script: 'Great Vibes', 'Cormorant Garamond', Georgia, cursive;
+  --font-texto: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-titulo: 'Oranienbaum', 'Times New Roman', Georgia, serif;
+  --font-script: 'Pinyon Script', 'Oranienbaum', Georgia, cursive;
+  --font-nome: 'Courier Prime', 'Courier New', Courier, monospace;
 
-  --recorte: 10px; /* raio dos cantos recortados dos cartões */
   --toque: 48px; /* altura mínima de alvo de toque */
 
   font-family: var(--font-texto);
-  color: var(--verde-escuro);
-  background: var(--offwhite);
+  font-size: 16px;
+  color: var(--verde-texto);
+  background: var(--branco);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -77,21 +80,25 @@
 html,
 body {
   margin: 0;
-  background: var(--offwhite);
+  background: var(--branco);
 }
 
 body {
   min-height: 100vh;
   min-height: 100dvh;
   line-height: 1.5;
+  overflow-x: hidden;
 }
 
+/* Títulos de seção: serifada condensada em caixa alta, como "ENTRADAS" no cardápio. */
 h1,
 h2 {
   font-family: var(--font-titulo);
-  font-weight: 600;
-  color: var(--verde-escuro);
+  font-weight: 400;
+  color: var(--verde-texto);
   line-height: 1.15;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   margin: 0;
 }
 
@@ -101,9 +108,17 @@ p {
 
 .num {
   font-family: var(--font-titulo);
-  font-weight: 600;
-  font-size: 1.2em;
+  font-size: 1.35em;
+  line-height: 1;
   font-variant-numeric: lining-nums;
+}
+
+/* Nome do convidado: máquina de escrever em caixa alta, como nos cartões de nome. */
+.guest-name {
+  font-family: var(--font-nome);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .visually-hidden {
@@ -116,10 +131,64 @@ p {
   white-space: nowrap;
 }
 
+/* ---------- Ornamentos ---------- */
+
+/* Listras verticais pistache e branco, como no cardápio. */
+.stripes,
+.page::before {
+  background: repeating-linear-gradient(90deg, var(--pistache) 0 14px, var(--branco) 14px 28px);
+}
+
+.page::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(18px + env(safe-area-inset-top));
+  z-index: 1;
+}
+
+/* Faixa de largura total dentro de um contêiner centralizado. */
+.stripes {
+  margin: calc(-18px - env(safe-area-inset-top)) calc(50% - 50vw) 14px;
+  height: calc(18px + env(safe-area-inset-top));
+}
+
+.ornament {
+  width: 132px;
+  height: 24px;
+  margin: 0 auto 12px;
+  background: url('./assets/ornament.svg') center / contain no-repeat;
+}
+
+.divider {
+  width: 150px;
+  height: 10px;
+  margin: 16px auto;
+  background: url('./assets/divider.svg') center / contain no-repeat;
+}
+
+/* Monograma dentro da oval dupla da placa de mesa. */
+.monogram {
+  width: 84px;
+  height: 100px;
+  margin: 0 auto 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: url('./assets/oval.svg') center / contain no-repeat;
+  font-family: var(--font-titulo);
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  color: var(--verde-texto);
+}
+
 /* ---------- Botões ---------- */
 
 button {
   font: inherit;
+  font-size: 1rem;
   font-weight: 600;
   min-height: var(--toque);
   padding: 12px 22px;
@@ -136,13 +205,13 @@ button {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 3px solid var(--verde-escuro);
+  outline: 3px solid var(--verde-texto);
   outline-offset: 2px;
 }
 
 button.primary {
-  background: var(--verde-escuro);
-  color: #fff;
+  background: var(--verde-texto);
+  color: var(--branco);
   letter-spacing: 0.02em;
 }
 
@@ -151,26 +220,26 @@ button.primary:active:not(:disabled) {
 }
 
 button.secondary {
-  background: var(--blush);
+  background: var(--rosa);
   color: var(--verde-profundo);
 }
 
 button.secondary:active:not(:disabled) {
-  background: var(--pessego);
+  background: var(--pistache);
 }
 
-/* Desativado: sálvia-claro com verde-profundo (contraste AA), sem opacidade. */
+/* Desativado: pistache com verde-profundo (4,8:1), sem opacidade. */
 button.primary:disabled,
 button.secondary:disabled {
-  background: var(--salvia-claro);
+  background: var(--pistache);
   color: var(--verde-profundo);
   cursor: default;
 }
 
-/* Ação destrutiva: fundo --erro com texto branco (contraste ~6,5:1). */
+/* Ação destrutiva: fundo --erro com texto branco (6,6:1). */
 button.danger {
   background: var(--erro);
-  color: #fff;
+  color: var(--branco);
 }
 
 button.danger:active:not(:disabled) {
@@ -180,11 +249,11 @@ button.danger:active:not(:disabled) {
 button.link {
   background: none;
   border: none;
-  min-height: 44px;
+  min-height: var(--toque);
   padding: 8px 4px;
   border-radius: 6px;
-  color: var(--verde-escuro);
-  font-weight: 500;
+  color: var(--verde-texto);
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -195,9 +264,8 @@ button.link:disabled {
 }
 
 button.small {
-  min-height: 40px;
-  padding: 8px 14px;
-  font-size: 0.875rem;
+  min-height: var(--toque);
+  padding: 8px 16px;
 }
 
 /* ---------- Página e cartões ---------- */
@@ -208,84 +276,60 @@ button.small {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+  padding: calc(40px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
     calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
 }
 
 /*
- * Cartão de convite: marfim, borda fina dupla em sálvia (borda + filete interno)
- * e cantos côncavos recortados por máscara (-webkit-mask para o Safari do iOS).
+ * Cartão de nome: cartucho rosa com cantos côncavos e filete branco (SVG em border-image,
+ * 9 fatias: as curvas não distorcem em nenhum tamanho). Texto sempre verde-profundo (5,5:1).
  */
 .card {
   position: relative;
   width: 100%;
   max-width: 440px;
-  background: var(--marfim);
-  border: 1px solid var(--salvia);
-  padding: 36px 26px 30px;
+  border: 30px solid transparent;
+  border-image: url('./assets/arabesco.svg') 30 fill / 30px stretch;
+  padding: 10px 2px 4px;
   text-align: center;
-  -webkit-mask:
-    radial-gradient(circle at 0 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top left,
-    radial-gradient(circle at 100% 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top right,
-    radial-gradient(circle at 0 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom left,
-    radial-gradient(circle at 100% 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom right;
-  -webkit-mask-size: 51% 51%;
-  -webkit-mask-repeat: no-repeat;
-  mask:
-    radial-gradient(circle at 0 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top left,
-    radial-gradient(circle at 100% 0, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) top right,
-    radial-gradient(circle at 0 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom left,
-    radial-gradient(circle at 100% 100%, transparent var(--recorte), #000 calc(var(--recorte) + 0.5px)) bottom right;
-  mask-size: 51% 51%;
-  mask-repeat: no-repeat;
+  color: var(--verde-profundo);
 }
 
-/* Filete interno da borda dupla. */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 7px;
-  border: 1px solid var(--salvia);
-  border-radius: 3px;
-  pointer-events: none;
+.card h1,
+.card h2,
+.card .title,
+.card .eyebrow,
+.card button.link {
+  color: var(--verde-profundo);
 }
 
-.card > * {
-  position: relative;
-}
-
-.ornament {
-  width: 132px;
-  height: 24px;
-  margin: 0 auto 14px;
-  background: url('./assets/ornament.svg') center / contain no-repeat;
-}
-
-.divider {
-  width: 150px;
-  height: 10px;
-  margin: 16px auto;
-  background: url('./assets/divider.svg') center / contain no-repeat;
+/* Erro dentro do cartão: erro sobre rosa não passa (4,45:1), então vai num selo branco. */
+.card .error {
+  background: var(--branco);
+  border-radius: 10px;
+  padding: 6px 12px;
 }
 
 .eyebrow {
   font-family: var(--font-titulo);
-  font-weight: 600;
-  font-size: 1.15rem;
-  letter-spacing: 0.08em;
+  font-size: 1.25rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   margin-bottom: 4px;
 }
 
 .title {
-  font-size: 2rem;
+  font-size: 2.1rem;
 }
 
+/* Manuscrita caligráfica, como "Menu" e "Mesa": só títulos curtos. */
 .title-script {
   font-family: var(--font-script);
   font-weight: 400;
-  font-size: 2.9rem;
-  line-height: 1.1;
+  font-size: 3rem;
+  line-height: 1.15;
+  letter-spacing: 0;
+  text-transform: none;
   padding: 0 4px;
 }
 
@@ -303,7 +347,7 @@ button.small {
 
 .error {
   color: var(--erro);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ---------- Nome ---------- */
@@ -321,7 +365,6 @@ button.small {
 .name-form label {
   text-align: left;
   font-weight: 600;
-  font-size: 0.95rem;
 }
 
 .name-form input {
@@ -330,10 +373,10 @@ button.small {
   width: 100%;
   min-height: 52px;
   padding: 12px 14px;
-  border: 1px solid var(--salvia);
+  border: 1px solid var(--verde-folha);
   border-radius: 10px;
-  background: #fff;
-  color: var(--verde-profundo);
+  background: var(--branco);
+  color: var(--verde-texto);
 }
 
 .name-form button {
@@ -348,44 +391,45 @@ button.small {
   min-height: 100dvh;
 }
 
-/* Pílulas e avisos em blush: sempre com verde-profundo. */
+/* Pílulas: texto verde-profundo. */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: var(--blush);
+  gap: 6px;
   color: var(--verde-profundo);
-  border-radius: 999px;
-  padding: 4px 14px;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 1rem;
   line-height: 1.3;
 }
 
+/* Pílula da cota: cartucho rosa pequeno (SVG em border-image). */
 .pill-quota {
   align-self: flex-start;
+  border: 10px solid transparent;
+  border-image: url('./assets/arabesco-pill.svg') 12 fill / 10px stretch;
+  padding: 0 6px;
 }
 
+/* Pílula de status: branca com borda rosa. */
 button.pill-status {
-  min-height: 40px;
-  padding: 6px 14px;
-  border: none;
-  font-size: 0.85rem;
+  min-height: var(--toque);
+  padding: 6px 16px;
+  background: var(--branco);
+  border: 2px solid var(--rosa);
   text-align: center;
 }
 
 button.pill-status-failed {
-  background: var(--marfim);
+  border-color: var(--erro);
   color: var(--erro);
 }
 
 .banner {
-  background: var(--blush);
+  background: var(--rosa);
   color: var(--verde-profundo);
   border-radius: 10px;
   padding: 8px 12px;
   font-weight: 600;
-  font-size: 0.92rem;
 }
 
 .topbar {
@@ -402,17 +446,10 @@ button.pill-status-failed {
 }
 
 .greeting {
-  font-size: 1rem;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.greeting strong {
-  font-family: var(--font-titulo);
-  font-size: 1.3rem;
-  font-weight: 600;
 }
 
 /* ---------- Câmera ao vivo: vídeo em tela cheia, faixas escuras translúcidas ---------- */
@@ -425,9 +462,9 @@ button.pill-status-failed {
   position: relative;
   height: 100vh;
   height: 100dvh;
-  background: #121810;
+  background: var(--escuro);
   overflow: hidden;
-  color: var(--marfim);
+  color: var(--branco);
 }
 
 .viewfinder {
@@ -448,7 +485,7 @@ button.pill-status-failed {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--marfim);
+  color: var(--branco);
 }
 
 .band {
@@ -466,39 +503,35 @@ button.pill-status-failed {
   top: 0;
   padding-top: calc(10px + env(safe-area-inset-top));
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(184, 145, 47, 0.45);
+  border-bottom: 1px solid rgba(179, 209, 139, 0.5);
 }
 
 .band-bottom {
   bottom: 0;
   padding-top: 14px;
   padding-bottom: calc(8px + env(safe-area-inset-bottom));
-  border-top: 1px solid rgba(184, 145, 47, 0.45);
+  border-top: 1px solid rgba(179, 209, 139, 0.5);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
 }
 
-.camera-live .greeting strong {
-  color: var(--marfim);
-}
-
+.camera-live .greeting,
 .camera-live button.link {
-  color: var(--marfim);
+  color: var(--branco);
 }
 
 .band-bottom button.link {
-  font-size: 0.85rem;
   font-weight: 400;
 }
 
 .band-error {
-  color: var(--marfim);
+  color: var(--branco);
   background: var(--erro);
   border-radius: 8px;
   padding: 6px 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .camera-actions {
@@ -513,10 +546,9 @@ button.pill-status-failed {
 button.ghost {
   justify-self: start;
   background: transparent;
-  color: var(--marfim);
-  border: 1px solid var(--marfim);
+  color: var(--branco);
+  border: 1px solid var(--branco);
   padding: 10px 14px;
-  font-size: 0.85rem;
   white-space: nowrap;
 }
 
@@ -529,27 +561,28 @@ button.ghost:disabled {
   justify-self: end;
 }
 
-/* Obturador: marfim com anel dourado. */
+/* Obturador: branco com anel pistache e contorno verde-folha. */
 button.shutter {
   width: 78px;
   height: 78px;
   padding: 0;
   border-radius: 50%;
-  background: var(--marfim);
-  border: 4px solid #121810;
+  background: var(--branco);
+  border: 4px solid var(--escuro);
   box-shadow:
-    0 0 0 3px var(--dourado),
+    0 0 0 4px var(--pistache),
+    0 0 0 5px var(--verde-folha),
     0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 button.shutter:active:not(:disabled) {
   transform: scale(0.93);
-  background: var(--salvia-claro);
+  background: var(--rosa);
 }
 
 button.shutter:disabled {
-  background: var(--salvia-claro);
-  box-shadow: 0 0 0 3px var(--salvia);
+  background: var(--pistache);
+  box-shadow: 0 0 0 3px var(--verde-folha);
   cursor: default;
 }
 
@@ -584,13 +617,13 @@ button.shutter:disabled {
   font-size: 1.1rem;
 }
 
-/* ---------- Preview: camada inteira, foto em moldura blush ---------- */
+/* ---------- Preview: camada inteira, foto em moldura rosa ---------- */
 
 .preview {
   position: fixed;
   inset: 0;
   z-index: 5;
-  background: var(--offwhite);
+  background: var(--branco);
   display: flex;
   flex-direction: column;
   padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
@@ -602,7 +635,7 @@ button.shutter:disabled {
 /* Título e foto juntos no centro; botões presos embaixo. */
 .preview-title {
   text-align: center;
-  font-size: 1.9rem;
+  font-size: 2rem;
   margin-top: auto;
 }
 
@@ -618,9 +651,9 @@ button.shutter:disabled {
   max-height: calc(100dvh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   object-fit: contain;
   display: block;
-  background: var(--marfim);
-  border: 10px solid var(--blush);
-  outline: 1px solid var(--dourado);
+  background: var(--branco);
+  border: 10px solid var(--rosa);
+  outline: 1px solid var(--verde-folha);
   outline-offset: -5px;
   border-radius: 4px;
 }
@@ -639,7 +672,7 @@ button.shutter:disabled {
   font-size: 1.05rem;
 }
 
-/* ---------- Aviso "Foto enviada ✓" ---------- */
+/* ---------- Aviso curto ("Foto enviada ✓", "Foto apagada") ---------- */
 
 .toast {
   position: fixed;
@@ -647,14 +680,15 @@ button.shutter:disabled {
   left: 50%;
   top: calc(132px + env(safe-area-inset-top));
   transform: translateX(-50%);
-  background: var(--blush);
+  max-width: calc(100% - 32px);
+  background: var(--rosa);
   color: var(--verde-profundo);
-  border: 1px solid var(--dourado);
+  border: 1px solid var(--verde-folha);
   border-radius: 999px;
   padding: 10px 22px;
   font-weight: 600;
+  text-align: center;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-  white-space: nowrap;
   animation: aviso 2s ease-out forwards;
 }
 
@@ -669,9 +703,9 @@ button.shutter:disabled {
 .gallery-page {
   max-width: 720px;
   margin: 0 auto;
-  /* Espaço para a barra fixa embaixo. */
+  /* Espaço para a barra fixa embaixo (até ~200px quando as pílulas quebram em duas linhas). */
   padding: calc(18px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right))
-    calc(170px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+    calc(240px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
 }
 
 .gallery-header {
@@ -680,7 +714,7 @@ button.shutter:disabled {
 }
 
 .gallery-title {
-  font-size: 2.4rem;
+  font-size: 2.6rem;
 }
 
 .gallery-greeting {
@@ -688,12 +722,12 @@ button.shutter:disabled {
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: 0 14px;
   margin-top: 4px;
 }
 
 .gallery-header .divider {
-  margin: 10px auto 14px;
+  margin: 8px auto 14px;
 }
 
 .gallery-notice {
@@ -720,7 +754,7 @@ button.shutter:disabled {
   padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+  gap: 6px;
 }
 
 @media (min-width: 600px) {
@@ -733,17 +767,17 @@ button.shutter:disabled {
   height: 1px;
 }
 
-/* Quadrado com padding-top: aspect-ratio não existe no iOS 14. */
+/* Quadrado com padding-top (aspect-ratio não existe no iOS 14); borda fina pistache, sem recorte na foto. */
 .tile {
   position: relative;
   display: block;
   width: 100%;
   min-height: 0;
   padding: 100% 0 0;
-  border: none;
-  border-radius: 3px;
+  border: 1px solid var(--pistache);
+  border-radius: 6px;
   overflow: hidden;
-  background: var(--salvia-claro);
+  background: var(--pistache);
   cursor: pointer;
 }
 
@@ -758,7 +792,7 @@ button.shutter:disabled {
 }
 
 .tile:focus-visible {
-  outline-offset: -3px;
+  outline-offset: 2px;
 }
 
 .tile-local img {
@@ -773,7 +807,7 @@ button.shutter:disabled {
 /* A pílula de status traz o convidado até aqui. */
 .tile.is-attention {
   box-shadow:
-    0 0 0 3px var(--offwhite),
+    0 0 0 3px var(--branco),
     0 0 0 6px var(--erro);
   animation: atencao 0.6s ease-in-out 3;
 }
@@ -784,8 +818,8 @@ button.shutter:disabled {
   bottom: 4px;
   max-width: calc(100% - 8px);
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 0.72rem;
+  padding: 1px 8px;
+  font-size: 1rem;
   font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
@@ -795,17 +829,18 @@ button.shutter:disabled {
 
 .tile-badge-mine,
 .tile-badge-sent {
-  background: var(--blush);
+  background: var(--rosa);
   color: var(--verde-profundo);
 }
 
 .tile-badge-sending {
-  background: var(--marfim);
-  color: var(--verde-profundo);
+  background: var(--branco);
+  color: var(--verde-texto);
 }
 
+/* "Falhou": erro sobre rosa não passa (4,45:1); fica em branco (6,6:1). */
 .tile-badge-failed {
-  background: var(--marfim);
+  background: var(--branco);
   color: var(--erro);
 }
 
@@ -816,9 +851,9 @@ button.shutter:disabled {
   right: 0;
   bottom: 0;
   z-index: 4;
-  background: var(--marfim);
-  border-top: 1px solid var(--salvia);
-  box-shadow: 0 -6px 18px rgba(58, 82, 48, 0.12);
+  background: var(--branco);
+  border-top: 1px solid var(--verde-folha);
+  box-shadow: 0 -6px 18px rgba(62, 87, 36, 0.12);
   padding: 10px calc(16px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
     calc(16px + env(safe-area-inset-left));
   display: flex;
@@ -831,10 +866,11 @@ button.shutter:disabled {
   width: 100%;
   max-width: 480px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .gallery-bar .banner {
@@ -857,8 +893,8 @@ button.take-photo {
   bottom: 0;
   left: 0;
   z-index: 20;
-  background: #121810;
-  color: var(--marfim);
+  background: var(--escuro);
+  color: var(--branco);
   display: flex;
   flex-direction: column;
   animation: aparecer 0.15s ease-out;
@@ -873,16 +909,16 @@ button.take-photo {
 }
 
 .viewer-count {
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 button.viewer-close {
-  width: 48px;
-  height: 48px;
+  width: var(--toque);
+  height: var(--toque);
   padding: 0;
   background: transparent;
-  color: var(--marfim);
-  border: 1px solid rgba(246, 242, 233, 0.5);
+  color: var(--branco);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   font-size: 1.2rem;
 }
 
@@ -921,12 +957,12 @@ button.viewer-nav {
   position: absolute;
   top: 50%;
   margin-top: -28px;
-  width: 48px;
+  width: var(--toque);
   height: 56px;
   padding: 0;
   border-radius: 10px;
-  background: rgba(24, 32, 20, 0.7);
-  color: var(--marfim);
+  background: rgba(20, 27, 16, 0.7);
+  color: var(--branco);
   font-size: 2rem;
   line-height: 1;
 }
@@ -942,42 +978,39 @@ button.viewer-nav {
 .viewer-caption {
   text-align: center;
   padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
-  border-top: 1px solid rgba(184, 145, 47, 0.45);
+  border-top: 1px solid rgba(179, 209, 139, 0.5);
 }
 
 .viewer-name {
-  font-family: var(--font-titulo);
-  font-weight: 600;
-  font-size: 1.5rem;
+  font-size: 1.15rem;
 }
 
 .viewer-time {
-  font-size: 0.9rem;
+  font-family: var(--font-titulo);
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
 }
 
 button.viewer-delete {
   margin-top: 10px;
-  min-height: 44px;
   padding: 8px 18px;
   background: transparent;
-  color: var(--marfim);
-  border: 1px solid rgba(246, 242, 233, 0.6);
-  font-weight: 500;
-  font-size: 0.9rem;
+  color: var(--branco);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  font-weight: 600;
 }
 
 .viewer-notice {
   display: inline-block;
-  background: var(--blush);
+  background: var(--rosa);
   color: var(--verde-profundo);
   border-radius: 999px;
   padding: 4px 14px;
   font-weight: 600;
-  font-size: 0.85rem;
   margin-bottom: 8px;
 }
 
-/* ---------- Folha de ações (foto que falhou) ---------- */
+/* ---------- Folhas (foto que falhou, confirmar apagar) ---------- */
 
 .sheet-backdrop {
   position: fixed;
@@ -986,7 +1019,7 @@ button.viewer-delete {
   bottom: 0;
   left: 0;
   z-index: 30;
-  background: rgba(24, 32, 20, 0.55);
+  background: rgba(20, 27, 16, 0.55);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1009,7 +1042,8 @@ button.viewer-delete {
   max-height: 32vh;
   max-width: 100%;
   margin: 0 auto;
-  border: 6px solid var(--blush);
+  border: 4px solid var(--branco);
+  outline: 1px solid var(--verde-folha);
   border-radius: 4px;
 }
 
@@ -1017,6 +1051,11 @@ button.viewer-delete {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* No cartão rosa, o botão secundário fica branco para não sumir no fundo. */
+.sheet button.secondary {
+  background: var(--branco);
 }
 
 /* ---------- Painel do mock (só em desenvolvimento) ---------- */
@@ -1027,9 +1066,10 @@ button.viewer-delete {
   bottom: calc(150px + env(safe-area-inset-bottom));
   background: #fff;
   color: #222;
-  border: 1px dashed var(--dourado);
+  border: 1px dashed var(--verde-folha);
   border-radius: 8px;
   padding: 6px 10px;
+  font-family: system-ui, sans-serif;
   font-size: 0.75rem;
   z-index: 50;
   opacity: 0.92;

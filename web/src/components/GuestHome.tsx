@@ -333,7 +333,7 @@ export function GuestHome({ session, eventName, eventOpensAt, onLoggedOut, onSes
           ← Galeria
         </button>
         <span className="greeting">
-          Olá, <strong>{session.name}</strong>
+          Olá, <strong className="guest-name">{session.name}</strong>
         </span>
       </div>
       {quotaNode}

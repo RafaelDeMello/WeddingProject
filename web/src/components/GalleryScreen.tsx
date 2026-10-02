@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { MONOGRAM } from '../brand';
 import type { GridEntry } from '../gallery';
 
 interface Props {
@@ -91,11 +92,15 @@ export function GalleryScreen(props: Props) {
 
   return (
     <main className="gallery-page">
+      <div className="stripes" aria-hidden="true" />
       <header className="gallery-header">
+        <div className="monogram" aria-hidden="true">
+          {MONOGRAM}
+        </div>
         <h1 className="title-script gallery-title">{props.eventName}</h1>
         <div className="gallery-greeting">
           <span className="greeting">
-            Olá, <strong>{props.guestName}</strong>
+            Olá, <strong className="guest-name">{props.guestName}</strong>
           </span>
           <button type="button" className="link" onClick={props.onLogout} disabled={props.loggingOut}>
             Não é você?

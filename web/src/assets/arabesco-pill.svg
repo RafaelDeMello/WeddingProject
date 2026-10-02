@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Versão pequena do cartucho, para as pílulas (border-image, fatias de 12). -->
+  <path d="M6 0H34A6 6 0 0 0 40 6V34A6 6 0 0 0 34 40H6A6 6 0 0 0 0 34V6A6 6 0 0 0 6 0Z" fill="#F9C9C9"/>
+  <path d="M8.12 2.5H31.88A8.5 8.5 0 0 0 37.5 8.12V31.88A8.5 8.5 0 0 0 31.88 37.5H8.12A8.5 8.5 0 0 0 2.5 31.88V8.12A8.5 8.5 0 0 0 8.12 2.5Z" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+</svg>

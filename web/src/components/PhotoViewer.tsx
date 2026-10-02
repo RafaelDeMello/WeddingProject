@@ -122,7 +122,7 @@ export function PhotoViewer({ entries, openKey, myName, notice, onNavigate, onCl
             {notice}
           </p>
         )}
-        <p className="viewer-name">{info.mine ? `${info.name} (você)` : info.name}</p>
+        <p className="viewer-name guest-name">{info.mine ? `${info.name} (você)` : info.name}</p>
         <p className="viewer-time">{info.time}</p>
         {canDelete(entry) && (
           <button type="button" className="viewer-delete" onClick={() => onDelete(entry)}>

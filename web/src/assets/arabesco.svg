@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- Cartucho dos cartões de nome: rosa com cantos côncavos e filete branco. Usado em border-image (fatias de 30). -->
+  <path d="M14 0H106A14 14 0 0 0 120 14V106A14 14 0 0 0 106 120H14A14 14 0 0 0 0 106V14A14 14 0 0 0 14 0Z" fill="#F9C9C9"/>
+  <path d="M18.33 5H101.67A19 19 0 0 0 115 18.33V101.67A19 19 0 0 0 101.67 115H18.33A19 19 0 0 0 5 101.67V18.33A19 19 0 0 0 18.33 5Z" fill="none" stroke="#FFFFFF" stroke-width="1.6"/>
+  <circle cx="5" cy="5" r="2.2" fill="#7E9F52"/>
+  <circle cx="115" cy="5" r="2.2" fill="#7E9F52"/>
+  <circle cx="5" cy="115" r="2.2" fill="#7E9F52"/>
+  <circle cx="115" cy="115" r="2.2" fill="#7E9F52"/>
+</svg>
