@@ -1,31 +1,61 @@
 # weddingrafessa — câmera de convidados via QR Code
 
-Os convidados escaneiam um QR Code impresso nas mesas, informam o nome uma vez, tiram uma foto pela
-câmera da própria página e enviam. Os noivos baixam tudo depois.
+Um app web para casamentos (e outras festas): os convidados escaneiam um **QR Code** impresso nas mesas,
+informam o nome uma única vez, tiram fotos pela câmera do próprio navegador e todas aparecem numa
+**galeria compartilhada em tempo quase real**. Os anfitriões baixam tudo depois em um ZIP.
 
-- QR aponta para `https://fotos.example.com/e/<EVENT_SLUG>` (outro slug → 404).
-- Backend: Node 22 + Express + Prisma/SQLite + sharp. Front: React + Vite (servido pelo próprio Express).
-- Especificação completa em [`AGENTS.md`](AGENTS.md); histórico em [`PROGRESS.md`](PROGRESS.md); bugs em [`BUGS.md`](BUGS.md).
+Foi desenvolvido em poucos dias para um casamento real, com foco em **confiabilidade** e **segurança**,
+e usado na festa. Esta é a versão para você rodar a sua própria.
+
+## O que ele faz
+
+- **Sem instalar nada:** o convidado abre o link do QR no Safari/Chrome, usa a câmera da página
+  (com fallback para o seletor de arquivo) e envia.
+- **Envio robusto:** a foto é comprimida no celular, tem fila com *retry* e backoff exponencial, e é
+  idempotente (reenviar a mesma foto não conta duas vezes).
+- **Galeria compartilhada:** todos veem as fotos de todos (polling), podem apagar as próprias, e a moderação
+  pode ocultar qualquer foto.
+- **Janela de upload e cotas:** abre e fecha sozinho nos horários que você definir; limite por convidado
+  (janela deslizante e total) e proteção por IP.
+- **Admin de emergência (`/admin`):** grade das fotos no celular, ocultar/reexibir, e **download de tudo em ZIP**
+  (em *streaming*, organizado por convidado).
+- **Backup:** script para copiar fotos e banco para Google Drive / Cloudflare R2 (via `rclone`) a cada 10 minutos.
+
+## Stack
+
+- Backend: Node 22 + Express, Zod, Prisma + SQLite (WAL), multer, sharp, file-type, helmet, pino.
+- Frontend: React + Vite (build estático servido pelo próprio Express), textos em pt-BR.
+- Testes: Vitest + Supertest. Deploy: Docker + Docker Compose atrás de um Caddy (HTTPS automático).
+
+## Segurança, em resumo
+
+HTTPS obrigatório; sessão por cookie assinado (`httpOnly`, `Secure`, `SameSite=Lax`); checagem de `Origin`
+contra CSRF; CSP restritiva; validação de imagem por *magic bytes*; remoção de EXIF/GPS; IP guardado só como
+hash; fotos **nunca** públicas (só convidados com sessão e admin autenticado); container não-root com sistema
+de arquivos somente leitura. A especificação completa está em [`AGENTS.md`](AGENTS.md).
+
+> A galeria é tão privada quanto o link do QR: não divulgue o link fora da festa.
 
 ## Sumário
 
-1. [Desenvolvimento local](#1-desenvolvimento-local)
+1. [Rodar localmente](#1-rodar-localmente)
 2. [Variáveis de ambiente](#2-variáveis-de-ambiente)
-3. [Deploy na VPS](#3-deploy-na-vps)
-4. [Caddy](#4-caddy-proxy-global-da-vps)
-5. [Verificação](#5-verificação-pós-deploy)
-6. [Backup](#6-backup)
-7. [Limpar os dados de teste antes do evento](#7-limpar-os-dados-de-teste-antes-do-evento)
-8. [Rotina, atualização e fotos](#8-rotina-durante-o-evento-atualização-e-acesso-às-fotos)
-9. [Problemas comuns](#9-problemas-comuns)
+3. [Subir em uma VPS](#3-subir-em-uma-vps)
+4. [Backup](#4-backup)
+5. [Limpar os dados de teste antes do evento](#5-limpar-os-dados-de-teste-antes-do-evento)
+6. [Durante e depois do evento](#6-durante-e-depois-do-evento)
+7. [Personalizar para o seu evento](#7-personalizar-para-o-seu-evento)
+8. [Problemas comuns](#8-problemas-comuns)
 
 ---
 
-## 1. Desenvolvimento local
+## 1. Rodar localmente
+
+Requisitos: Node 22+ e npm.
 
 ```bash
 npm install
-cp .env.example .env     # e ajuste para dev (veja o comentário no topo do arquivo)
+cp .env.example .env     # e ajuste para desenvolvimento (veja o comentário no topo do arquivo)
 npm run db:migrate       # cria data/db/app.db
 npm run dev              # API em :3000 e Vite em http://localhost:5173 (proxy de /api)
 npm test                 # Vitest + Supertest (faz um `vite build` real do front)
@@ -33,152 +63,185 @@ npm run typecheck
 npm run build
 ```
 
-Teste no celular com um túnel (o `*.trycloudflare.com` já está em `allowedHosts`):
+No `.env` de desenvolvimento, troque (é o que o comentário do `.env.example` explica):
+
+```
+NODE_ENV=development
+PUBLIC_BASE_URL=http://localhost:5173
+DATA_DIR=../data
+DATABASE_URL=file:../../data/db/app.db
+UPLOAD_OPENS_AT=<uma data no passado>
+```
+
+Abra `http://localhost:5173/e/<EVENT_SLUG>`. Para testar no celular, use um túnel
+(`*.trycloudflare.com` já está liberado em `allowedHosts`):
 
 ```bash
 cloudflared tunnel --url http://localhost:5173
 ```
 
-Com `NODE_ENV=development` o cookie de sessão não é `Secure` e a checagem de `Origin` também aceita
-`localhost` e `https://*.trycloudflare.com`. Em produção ela é estrita (`PUBLIC_BASE_URL`).
+Para mexer só no visual, sem API: `VITE_MOCK_API=session,photos,gallery` em `web/.env.local`.
 
 ## 2. Variáveis de ambiente
 
-Todas são validadas no boot (Zod); valor inválido derruba o container com a lista dos problemas.
+Todas são validadas no boot (Zod); valor inválido derruba o app com a lista dos problemas.
 Veja o [`.env.example`](.env.example) completo. As principais:
 
 | Variável | Para quê |
 |---|---|
+| `PUBLIC_BASE_URL` | URL pública, com `https://` em produção (usada na checagem de `Origin`) |
 | `EVENT_SLUG` | trecho secreto do QR (`/e/<slug>`). Use algo curto e aleatório |
-| `UPLOAD_OPENS_AT` / `UPLOAD_CLOSES_AT` | janela de upload, ISO 8601 **com offset** (`-03:00`) |
-| `GUEST_MAX_PER_WINDOW` / `GUEST_WINDOW_MINUTES` / `GUEST_MAX_TOTAL` | cota real por convidado (10 a cada 10 min; 150 no total) |
-| `IP_MAX_UPLOADS_PER_WINDOW` / `IP_MAX_GUESTS_PER_WINDOW` / `IP_MAX_GALLERY_PER_WINDOW` | proteção por IP, generosa (1000 / 150 / 100000 por 10 min): o Wi-Fi do salão compartilha o IP |
-| `MIN_FREE_DISK_MB` | abaixo disso o upload é recusado com 507 |
-| `SESSION_SECRET` | assina o cookie; `openssl rand -hex 32` |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | login (Basic Auth) do admin e do download do ZIP; `ADMIN_PASSWORD` com 12+ caracteres, use `openssl rand -base64 24` |
-| `ADMIN_MAX_FAILURES_PER_WINDOW` | tentativas de login com senha errada por IP a cada 15 min (padrão 10). **Em produção use 30** e veja a nota na [seção 8](#8-rotina-durante-o-evento-atualização-e-acesso-às-fotos) |
+| `EVENT_NAME` | nome exibido na interface |
+| `UPLOAD_OPENS_AT` / `UPLOAD_CLOSES_AT` | janela de upload, ISO 8601 **com offset** (ex.: `-03:00`) |
+| `GUEST_MAX_PER_WINDOW` / `GUEST_WINDOW_MINUTES` / `GUEST_MAX_TOTAL` | cota por convidado (padrão 10 a cada 10 min; 150 no total) |
+| `IP_MAX_UPLOADS_PER_WINDOW` / `IP_MAX_GUESTS_PER_WINDOW` / `IP_MAX_GALLERY_PER_WINDOW` | proteção por IP, generosa de propósito: os convidados dividem o Wi-Fi do local |
+| `MIN_FREE_DISK_MB` | abaixo disso o upload é recusado (507) |
+| `SESSION_SECRET` | assina o cookie; gere com `openssl rand -hex 32` |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | login (Basic Auth) do admin e do ZIP; senha com 12+ caracteres: `openssl rand -base64 24` |
+| `ADMIN_MAX_FAILURES_PER_WINDOW` | tentativas erradas de login por IP a cada 15 min (padrão 10). **Em produção use 30** (veja a [seção 6](#6-durante-e-depois-do-evento)) |
 | `DATA_DIR`, `DATABASE_URL` | no container: `/data` e `file:/data/db/app.db` |
-| `WEB_DIST_DIR` | opcional; padrão `../web/dist` (na imagem, o front já está lá) |
 
-> **Janela de upload e testes em produção:** o teste de ponta a ponta na VPS acontece **antes** de
-> `UPLOAD_OPENS_AT`. Para testar, abra a janela no `.env` (ex.: `UPLOAD_OPENS_AT=2026-09-01T00:00:00-03:00`),
-> teste, rode o [reset-data](#7-limpar-os-dados-de-teste-antes-do-evento) e **volte** o valor real.
+## 3. Subir em uma VPS
 
-## 3. Deploy na VPS
+### 3.1 Requisitos
 
-Pré-requisitos no host (Ubuntu): Docker + Compose plugin, `git`, e — para o backup — `sqlite3`,
-`rclone` e `util-linux` (`flock`, `setpriv`):
+- Uma VPS Linux (testado em **Ubuntu**), com pelo menos **1 vCPU, 1–2 GB de RAM** e disco suficiente para as
+  fotos (planeje ~1 GB para cada ~2 mil fotos, mais a margem de `MIN_FREE_DISK_MB`).
+- Um **domínio ou subdomínio** (ex.: `fotos.seudominio.com`) com um registro **A** apontando para o IP da VPS.
+- Portas **80 e 443** abertas no firewall (o Caddy usa a 80 para emitir o certificado).
+- Acesso por SSH com um usuário com `sudo`.
+
+### 3.2 Instalar as dependências no servidor
 
 ```bash
-sudo apt-get install -y sqlite3 rclone util-linux
+# Docker + plugin do Compose
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"      # saia e entre de novo no SSH para valer
+
+# Para o backup (opcional): sqlite3, rclone e util-linux (flock, setpriv)
+sudo apt-get update && sudo apt-get install -y git sqlite3 rclone util-linux
 ```
 
-O app fica em `/opt/apps/weddingrafessa` e **entra na rede Docker `proxy`** (a mesma do Caddy),
-**sem publicar portas no host**. O Caddy o alcança como `weddingrafessa:3000`.
+### 3.3 Baixar o código e configurar
 
 ```bash
-# 1. Código
-sudo mkdir -p /opt/apps && cd /opt/apps
-sudo git clone <URL-DO-REPOSITORIO> weddingrafessa
+sudo mkdir -p /opt/apps && sudo chown "$USER" /opt/apps && cd /opt/apps
+git clone <URL-DO-SEU-REPOSITORIO> weddingrafessa
 cd weddingrafessa
 
-# 2. Configuração (o .env nunca é versionado)
 cp .env.example .env
-nano .env        # preencha: EVENT_SLUG, EVENT_NAME, SESSION_SECRET, ADMIN_USER, ADMIN_PASSWORD...
-#   SESSION_SECRET:  openssl rand -hex 32
-#   ADMIN_PASSWORD:  openssl rand -base64 24
-chmod 600 .env
+nano .env
+#   PUBLIC_BASE_URL=https://fotos.seudominio.com
+#   EVENT_SLUG=<algo aleatório, ex.: a8k2x>   EVENT_NAME=<nome do evento>
+#   UPLOAD_OPENS_AT / UPLOAD_CLOSES_AT  (com offset do seu fuso)
+#   SESSION_SECRET=<openssl rand -hex 32>
+#   ADMIN_USER=<...>   ADMIN_PASSWORD=<openssl rand -base64 24>
+#   ADMIN_MAX_FAILURES_PER_WINDOW=30
+chmod 600 .env        # o .env nunca é versionado
 
-# 3. Pasta de dados (bind mount). O container roda como uid/gid 1000: a pasta precisa ser dele
-#    ANTES do primeiro "up".
-mkdir -p data
-sudo chown 1000:1000 data
-
-# 4. Confirme que a rede do Caddy existe
-docker network ls | grep -w proxy
-
-# 5. Sobe (build + migrações automáticas no start)
-docker compose up -d --build
-docker compose logs -f weddingrafessa     # deve mostrar "aplicando migrações" e "servidor iniciado"
-docker compose ps                          # STATUS "healthy" em até ~1 min
+# Pasta de dados (bind mount). O container roda como uid/gid 1000: a pasta precisa ser dele ANTES do primeiro "up".
+mkdir -p data && sudo chown 1000:1000 data
 ```
 
-O container sobe com `mem_limit: 1g`, `cpus: 1`, filesystem **somente leitura** (só `/data` e `/tmp`
-graváveis), sem capabilities extras e com o usuário não-root `node`. O entrypoint cria `/data/db` e
-roda `prisma migrate deploy` antes de iniciar a API.
+### 3.4 Proxy reverso com HTTPS (Caddy)
 
-## 4. Caddy (proxy global da VPS)
-
-O Caddy é **compartilhado com outros sites**. Regras: **nunca reinicie nem recrie** o container dele;
-**valide antes** de recarregar; faça backup do Caddyfile antes de editar.
-
-Situação conhecida: rede `proxy` (external), Caddyfile em
-`/opt/caddy/Caddyfile` montado em `/etc/caddy/Caddyfile`.
-
-> ⚠️ **O Caddyfile é um bind mount de ARQUIVO ÚNICO.** Editores que *substituem* o arquivo
-> (`sed -i`, `vim` com `backupcopy=no`, `mv`, `cp` para outro inode) quebram o vínculo: o container
-> continua lendo a versão ANTIGA, sem nenhum erro. **Edite com `nano`** ou **acrescente com `cat >>`**,
-> e sempre confira o que o **container** enxerga (passo 3).
+O app **não publica portas**: ele entra numa rede Docker chamada `proxy`, e o Caddy o alcança por lá como
+`weddingrafessa:3000`. Se você ainda não tem um Caddy no servidor, suba um:
 
 ```bash
-CADDYFILE=/opt/caddy/Caddyfile
+docker network create proxy
+sudo mkdir -p /opt/caddy && cd /opt/caddy
+```
 
-# 0. (Só leitura) Reconfira redes e mounts do Caddy
-docker inspect caddy --format '{{json .NetworkSettings.Networks}}' | head -c 600; echo
-docker inspect caddy --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
-cat "$CADDYFILE"
+`/opt/caddy/docker-compose.yml`:
 
-# 1. Backup do Caddyfile ANTES de editar
-sudo cp -a "$CADDYFILE" "$CADDYFILE.bak-$(date +%Y%m%d-%H%M%S)"
+```yaml
+services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - proxy
 
-# 2. Acrescente o bloco (cat >> mantém o mesmo arquivo/inode)
-sudo tee -a "$CADDYFILE" >/dev/null <<'EOF'
+volumes:
+  caddy_data:
+  caddy_config:
 
-fotos.example.com {
+networks:
+  proxy:
+    external: true
+    name: proxy
+```
+
+`/opt/caddy/Caddyfile` (troque o domínio pelo seu):
+
+```
+fotos.seudominio.com {
     request_body {
         max_size 10MB
     }
     encode gzip
     reverse_proxy weddingrafessa:3000
 }
-EOF
-
-# 3. Confira o que o CONTAINER enxerga — o bloco novo precisa aparecer aqui
-docker exec caddy cat /etc/caddy/Caddyfile
-
-# 4. OBRIGATÓRIO: validar. Se der erro, NÃO recarregue (veja "Desfazer" abaixo)
-docker exec caddy caddy validate --config /etc/caddy/Caddyfile
-
-# 5. Só então recarregar (sem derrubar conexões dos outros sites)
-docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
-
-**Desfazer** (volta o arquivo ao que era, sem trocar o inode):
 
 ```bash
-sudo sh -c 'cat "$1" > "$2"' _ "$CADDYFILE.bak-<carimbo>" "$CADDYFILE"
-docker exec caddy cat /etc/caddy/Caddyfile   # confira
-docker exec caddy caddy validate --config /etc/caddy/Caddyfile
-docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+docker compose up -d
 ```
 
-Por que `request_body max_size 10MB`: o limite do app é 8 MB por foto; o Caddy barra antes o que passar disso.
+`max_size 10MB`: o limite do app é 8 MB por foto, e o Caddy barra antes o que passar disso.
 
-## 5. Verificação pós-deploy
+> **Já tem um Caddy (ou outro proxy) no servidor?** Basta colocá-lo na rede `proxy` (ou outra rede que você
+> escolha e ajuste no `docker-compose.yml`) e acrescentar o bloco acima ao Caddyfile dele, validando antes de
+> recarregar: `docker exec <container> caddy validate --config /etc/caddy/Caddyfile` e depois
+> `caddy reload --config ...`. Se preferir publicar uma porta em vez de usar rede Docker, remova a seção
+> `networks` do serviço no compose, adicione `ports: ["127.0.0.1:3100:3000"]` e aponte o proxy para
+> `127.0.0.1:3100`.
+
+### 3.5 Subir o app
 
 ```bash
-docker compose ps                                              # healthy
-docker exec weddingrafessa node -e "console.log(process.getuid())"   # 1000 (não-root)
-docker network inspect proxy --format '{{range .Containers}}{{.Name}} {{end}}'   # caddy e weddingrafessa
-curl -s https://fotos.example.com/api/health     # {"ok":true}
-curl -s -o /dev/null -w '%{http_code}\n' https://fotos.example.com/e/slug-errado   # 404
-curl -s -o /dev/null -w '%{http_code}\n' https://fotos.example.com/e/<EVENT_SLUG>  # 200
+cd /opt/apps/weddingrafessa
+docker compose up -d --build         # build da imagem + migrações automáticas no start
+docker compose logs -f weddingrafessa  # deve mostrar "aplicando migrações" e "servidor iniciado"
+docker compose ps                      # STATUS "healthy" em até ~1 min
 ```
 
-Depois, no **iPhone (Safari)** e no **Android (Chrome)** via 4G: abrir o QR, informar o nome, tirar uma
-foto e enviar. A foto deve aparecer em `/opt/apps/weddingrafessa/data/photos/AAAA-MM-DD/`.
+O container sobe com `mem_limit: 1g`, `cpus: 1`, sistema de arquivos **somente leitura** (só `/data` e `/tmp`
+graváveis), sem capabilities extras e com o usuário não-root `node`.
 
-## 6. Backup
+### 3.6 Verificar
+
+```bash
+curl -s https://fotos.seudominio.com/api/health                                    # {"ok":true}
+curl -s -o /dev/null -w '%{http_code}\n' https://fotos.seudominio.com/e/slug-errado  # 404
+curl -s -o /dev/null -w '%{http_code}\n' https://fotos.seudominio.com/e/<EVENT_SLUG> # 200
+```
+
+Depois, em um **iPhone (Safari)** e em um **Android (Chrome)**, preferencialmente pelo 4G: abra o link do QR,
+informe o nome, tire uma foto e envie. Ela deve aparecer na galeria e em `data/photos/AAAA-MM-DD/`.
+
+Gere o QR Code com o endereço `https://fotos.seudominio.com/e/<EVENT_SLUG>` (qualquer gerador serve).
+
+> **Janela de upload e testes:** o teste na VPS acontece **antes** de `UPLOAD_OPENS_AT`. Para testar, abra a
+> janela no `.env` (uma data no passado), faça `docker compose up -d`, teste, rode o
+> [reset-data](#5-limpar-os-dados-de-teste-antes-do-evento) e **volte** o valor real.
+
+### 3.7 Atualizar
+
+```bash
+cd /opt/apps/weddingrafessa && git pull && docker compose up -d --build   # migrações rodam sozinhas
+```
+
+## 4. Backup
 
 `scripts/backup.sh` roda **no host** (cron, a cada 10 min durante o evento):
 
@@ -186,39 +249,37 @@ foto e enviar. A foto deve aparecer em `/opt/apps/weddingrafessa/data/photos/AAA
 2. `rclone copy` de `photos/`, `thumbs/` e dos backups do banco para o remoto.
    É `copy`, não `sync`: o que for apagado localmente **continua** no remoto.
 
-### 6.1 Configurar o remoto do rclone
+### 4.1 Configurar o remoto do rclone
 
 ```bash
 rclone config          # n) new remote → escolha o tipo e siga o assistente
 rclone listremotes
 ```
 
-- **Cloudflare R2:** tipo `s3`, provider `Cloudflare`, com Access Key/Secret (R2 → *Manage API tokens*),
-  endpoint `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` e um bucket (ex.: `weddingrafessa`).
-  Destino: `BACKUP_REMOTE=r2:weddingrafessa`.
+- **Cloudflare R2:** tipo `s3`, provider `Cloudflare`, com Access Key/Secret e endpoint
+  `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. Destino: `BACKUP_REMOTE=r2:nome-do-bucket`.
 - **Google Drive:** tipo `drive`. Numa VPS sem navegador, responda *n* para "Use web browser" e siga o
-  `rclone authorize "drive"` numa máquina com navegador. Destino: `BACKUP_REMOTE=gdrive:weddingrafessa`.
+  `rclone authorize "drive"` numa máquina com navegador. Destino: `BACKUP_REMOTE=gdrive:nome-da-pasta`.
 
-### 6.2 Configurar e testar
+### 4.2 Configurar e testar
 
 ```bash
 cd /opt/apps/weddingrafessa
 cat > backup.env <<'EOF'
-BACKUP_REMOTE=r2:weddingrafessa
+BACKUP_REMOTE=r2:nome-do-bucket
 EOF
-chmod 600 backup.env                       # não é versionado (.gitignore)
+chmod 600 backup.env                       # não é versionado
 chmod +x scripts/backup.sh
 
 sudo ./scripts/backup.sh --check           # confere sqlite3, rclone, banco e acesso ao remoto
 sudo ./scripts/backup.sh                   # primeiro backup de verdade
-rclone ls r2:weddingrafessa | head         # as fotos e db/app-*.db devem estar lá
 ```
 
-Rode como **root** (o script abre o SQLite com o uid do dono do banco, 1000) ou como o próprio usuário
-1000. As variáveis opcionais (`APP_DIR`, `DATA_DIR`, `BACKUP_DIR`, `BACKUP_KEEP_DB`, `RCLONE_FLAGS`) estão
+Rode como **root** (o script abre o SQLite com o uid do dono do banco, 1000) ou como o próprio usuário 1000.
+As variáveis opcionais (`APP_DIR`, `DATA_DIR`, `BACKUP_DIR`, `BACKUP_KEEP_DB`, `RCLONE_FLAGS`) estão
 documentadas no topo do script.
 
-### 6.3 Cron (a cada 10 minutos)
+### 4.3 Cron (a cada 10 minutos)
 
 ```bash
 sudo crontab -e
@@ -228,28 +289,24 @@ sudo crontab -e
 */10 * * * * /opt/apps/weddingrafessa/scripts/backup.sh >> /var/log/weddingrafessa-backup.log 2>&1
 ```
 
-O script usa `flock`: se uma rodada demorar, a próxima é pulada (não acumulam). Acompanhe com
-`tail -f /var/log/weddingrafessa-backup.log`. Sem erros, cada rodada termina em `backup concluído`.
-Depois do evento, remova a linha do cron.
+O script usa `flock`: se uma rodada demorar, a próxima é pulada. Depois do evento, remova a linha do cron.
 
-### 6.4 Restaurar
+### 4.4 Restaurar
 
 ```bash
 docker compose stop weddingrafessa
 cp -a data/db/app.db data/db/app.db.antes-do-restore 2>/dev/null
 rm -f data/db/app.db-wal data/db/app.db-shm
-cp backups/db/app-<carimbo>.db data/db/app.db         # ou: rclone copy r2:weddingrafessa/db/app-<carimbo>.db data/db/
-sudo chown 1000:1000 data/db/app.db
-# Fotos: rclone copy r2:weddingrafessa/photos data/photos ; rclone copy r2:weddingrafessa/thumbs data/thumbs
+cp backups/db/app-<carimbo>.db data/db/app.db     # ou: rclone copy <remoto>/db/app-<carimbo>.db data/db/
+# Fotos: rclone copy <remoto>/photos data/photos ; rclone copy <remoto>/thumbs data/thumbs
 sudo chown -R 1000:1000 data
 docker compose start weddingrafessa
 ```
 
-## 7. Limpar os dados de teste antes do evento
+## 5. Limpar os dados de teste antes do evento
 
-`scripts/reset-data.mjs` apaga **fotos, miniaturas, arquivos temporários e as tabelas Guest/Photo**
-(o banco, o schema e as migrações ficam). Ele mostra o que vai apagar e exige digitar `APAGAR`.
-Rode com a API **parada**, num container avulso que usa o mesmo volume:
+`scripts/reset-data.mjs` apaga **fotos, miniaturas, arquivos temporários e as tabelas Guest/Photo** (o banco,
+o schema e as migrações ficam). Ele mostra o que vai apagar e exige digitar `APAGAR`. Rode com a API **parada**:
 
 ```bash
 cd /opt/apps/weddingrafessa
@@ -258,106 +315,80 @@ docker compose run --rm --no-deps weddingrafessa node /app/scripts/reset-data.mj
 docker compose start weddingrafessa
 ```
 
-- `--yes` pula a pergunta, mas **só funciona fora de produção** (em produção é recusado).
-- Em desenvolvimento: `npm run reset-data` (usa o `.env` da raiz).
-- Lembre de **voltar `UPLOAD_OPENS_AT`** ao valor real e recriar o container
-  (`docker compose up -d`) depois dos testes.
+`--yes` pula a pergunta, mas **só funciona fora de produção**. Em desenvolvimento: `npm run reset-data`.
+Lembre de **voltar `UPLOAD_OPENS_AT`** ao valor real e recriar o container (`docker compose up -d`).
 
-## 8. Rotina durante o evento, atualização e acesso às fotos
+## 6. Durante e depois do evento
 
 ```bash
 docker compose logs -f --tail=100 weddingrafessa     # logs estruturados (sem IP em claro)
 docker stats weddingrafessa --no-stream               # memória (limite 1 GiB)
-df -h /opt/apps/weddingrafessa/data                   # o app recusa uploads com menos de MIN_FREE_DISK_MB livres
-ls data/photos/*/ | wc -l                             # quantidade de fotos
+df -h data                                            # o app recusa uploads com pouco espaço livre
 ```
 
-**Atualizar** (migrações rodam sozinhas no start):
+**Admin (`/admin`).** Abra `https://fotos.seudominio.com/admin` com `ADMIN_USER`/`ADMIN_PASSWORD`. A página
+mostra as fotos mais recentes (as ocultas ficam esmaecidas), com **Ocultar / Reexibir**, **Carregar mais**,
+**Atualizar** (e atualiza sozinha a cada 30 s) e o botão de **download do ZIP**. Ocultar tira a foto da galeria de
+todos em poucos segundos; o arquivo continua no disco e no backup. Funciona bem no celular.
+
+> **Cuidado com o limite de login.** Estourado o limite de tentativas erradas (`ADMIN_MAX_FAILURES_PER_WINDOW`),
+> até a senha certa é recusada (`429`) até a janela passar. Como os convidados dividem o Wi-Fi, use `30` em
+> produção e entre no admin pelos **dados móveis** do celular.
+
+> **Reexibir também traz de volta fotos que o próprio convidado apagou:** não há distinção entre "apagada pelo
+> dono" e "ocultada pelo admin". Cada convidado pode apagar as próprias fotos; elas somem da galeria, mas o
+> arquivo continua no disco e no backup (e vai para `_ocultas/` no ZIP) e continua contando na cota dele.
+
+**Baixar todas as fotos (ZIP).** Abra `https://fotos.seudominio.com/api/admin/export.zip` (mesmo login) ou:
 
 ```bash
-cd /opt/apps/weddingrafessa && git pull && docker compose up -d --build
+curl -u admin -o fotos.zip https://fotos.seudominio.com/api/admin/export.zip
 ```
 
-**Baixar todas as fotos (ZIP).** Abra no navegador e entre com o `ADMIN_USER` / `ADMIN_PASSWORD` do `.env`:
+- **Estrutura:** uma pasta por convidado, `<nome>-<id curto>/<HHmmss>-<id da foto>.jpg`. Ocultas/apagadas ficam em
+  `_ocultas/<mesma pasta>/…`; arquivos registrados mas ausentes no disco são listados em `_faltando.txt`.
+- **Streaming:** o ZIP é gerado enquanto baixa, sem compressão. Não há barra de progresso confiável nem retomada:
+  se a conexão cair, recomeça do zero. Com milhares de fotos são vários GB, então **baixe no Wi-Fi ou no cabo**.
+- **Uma exportação por vez:** a segunda recebe `429 export_in_progress`; espere ~30 s.
+- **Alternativas:** `scp -r usuario@<ip>:/opt/apps/weddingrafessa/data/photos ./fotos` ou
+  `rclone copy <remoto>/photos ./fotos` (do backup, sem depender da VPS).
 
-```
-https://fotos.example.com/api/admin/export.zip
-```
+## 7. Personalizar para o seu evento
 
-- **Estrutura:** uma pasta por convidado, `<nome>-<id curto>/<HHmmss>-<id da foto>.jpg` (horário de Brasília).
-  As fotos **ocultas ou apagadas pelo convidado** vêm em `_ocultas/<mesma pasta do convidado>/…`. Se algum arquivo
-  registrado no banco não existir mais no disco, ele é pulado e listado em `_faltando.txt`.
-- **Streaming:** o ZIP é gerado enquanto baixa (sem montar nada em memória), sem compressão (JPEG não comprime).
-  Por isso o navegador **não sabe o tamanho total** (sem barra de progresso confiável) e **não há retomada**: se a
-  conexão cair, o download recomeça do zero.
-- **Uma exportação por vez:** se já houver uma em andamento, a resposta é `429 export_in_progress` — espere
-  (ela diz para tentar de novo em 30 s). Se quem baixava desistiu, a vaga é liberada na hora.
-- **Demora e tamanho:** com milhares de fotos são vários GB e alguns minutos. **Baixe no Wi-Fi ou no cabo**, não no 4G.
-  Em linha de comando (pede a senha sem deixá-la no histórico):
+- **Nome, datas e limites:** só no `.env` (seção 2).
+- **Monograma/identidade:** `web/src/brand.ts` (monograma) e `web/src/styles.css` (paleta em variáveis CSS).
+  Fontes e SVGs ficam em `web/src/fonts/` e `web/src/assets/`.
+- **Textos:** em português, nos componentes de `web/src/components/` e em `web/src/api.ts` (mensagens de erro).
+- **Fuso horário:** `TZ` e o offset de `UPLOAD_OPENS_AT`/`UPLOAD_CLOSES_AT` no `.env`; o horário dentro do ZIP usa
+  `America/Sao_Paulo` (ajuste em `server/src/zipExport.ts` se estiver em outro fuso).
 
-  ```bash
-  curl -u admin -o fotos-casamento.zip https://fotos.example.com/api/admin/export.zip
-  ```
-
-- **Alternativas** (quem executa é você), úteis se o download pelo navegador não for possível:
-
-  ```bash
-  # as fotos estão em /opt/apps/weddingrafessa/data/photos/AAAA-MM-DD/<id>.jpg (sem o nome do convidado)
-  scp -r usuario@vps:/opt/apps/weddingrafessa/data/photos ./fotos-casamento
-  # ou direto do remoto do backup (R2/Drive), que não depende da VPS:
-  rclone copy r2:weddingrafessa/photos ./fotos-casamento
-  ```
-
-> ⚠️ **Login do admin e o limite de tentativas erradas.** O admin tem limite de tentativas com senha errada por IP
-> (`ADMIN_MAX_FAILURES_PER_WINDOW`, padrão 10 a cada 15 min). Estourado o limite, **até a senha certa é recusada**
-> (`429`) até a janela passar — senão o limite não impediria adivinhar a senha. No Wi-Fi da festa dezenas de
-> convidados **dividem o mesmo IP**, então um tropeço de outra pessoa poderia travar o moderador.
-> **Em produção use `ADMIN_MAX_FAILURES_PER_WINDOW=30`** e entre no admin pelos **dados móveis** do celular (o IP
-> do 4G é outro, não o do Wi-Fi do salão). Com a senha gerada por `openssl rand -base64 24`, adivinhar é inviável
-> de qualquer forma; o limite é só uma segunda camada.
-
-**Moderação de emergência (`/admin`).** Não há moderador na festa; a página existe para o caso de uma foto
-precisar sair da galeria rapidamente. Abra `https://fotos.example.com/admin` (mesmo usuário e senha do
-ZIP; no celular, de preferência pelos **dados móveis** — veja a nota abaixo). Ela mostra as fotos mais recentes
-(as ocultas ficam esmaecidas, com o selo "Oculta"), um botão **Ocultar / Reexibir** em cada uma, **Carregar mais**,
-**Atualizar** (e atualiza sozinha a cada 30 s) e o botão **Baixar todas as fotos (ZIP)**. Ocultar tira a foto da
-galeria de todos os convidados em poucos segundos; o arquivo continua no disco e no backup. A foto ocultada **não
-conta a menos** na cota do convidado.
-
-> ⚠️ **Reexibir também traz de volta fotos que o próprio convidado apagou.** Não existe distinção entre "apagada
-> pelo dono" e "ocultada pelo admin" — use o **Reexibir** só se tiver certeza.
-
-As fotos **nunca** são públicas: o Express só as entrega a convidados com sessão (galeria, **sem** as ocultas) e ao admin autenticado. Os arquivos ficam no disco e no backup.
-
-**Fotos apagadas pelos convidados e "Reexibir":** cada convidado pode apagar as próprias fotos pelo app
-(`DELETE /api/gallery/photos/:id`). O efeito é o mesmo de "ocultar" no admin: a foto some da galeria de todos, mas
-o **arquivo continua no disco e no backup** (e vai para a pasta `_ocultas/` do ZIP) e ela **continua contando na
-cota** do convidado. ⚠️ Não existe distinção entre "apagada pelo dono" e "ocultada pelo admin": um **"Reexibir"
-do admin traz de volta também a foto que o próprio convidado apagou**. Use o reexibir só como ferramenta de
-emergência.
-
-## 9. Problemas comuns
+## 8. Problemas comuns
 
 | Sintoma | O que verificar |
 |---|---|
-| Container reinicia em loop | `docker compose logs weddingrafessa`: env inválida (lista os campos), ou permissão de `data/` (`sudo chown 1000:1000 data`) |
+| Container reinicia em loop | `docker compose logs weddingrafessa`: env inválida (lista os campos) ou permissão de `data/` (`sudo chown 1000:1000 data`) |
 | `502` do Caddy | o app está na rede `proxy`? `docker network inspect proxy`; `docker compose ps` (healthy?) |
-| Bloco novo do Caddy "não pegou" | o Caddyfile foi substituído em vez de editado — compare `cat $CADDYFILE` com `docker exec caddy cat /etc/caddy/Caddyfile` |
+| Certificado HTTPS não emite | o registro **A** do domínio aponta para o IP da VPS? As portas 80/443 estão abertas? `docker logs caddy` |
 | `/e/<slug>` dá 404 | o slug do QR é igual a `EVENT_SLUG` do `.env`? Mudou o `.env`? `docker compose up -d` recria o container |
-| "O envio de fotos ainda não abriu" | `UPLOAD_OPENS_AT` no `.env` (ISO com `-03:00`) |
-| Câmera não abre | precisa de HTTPS (o Caddy cuida) e do navegador nativo (Safari/Chrome), não de navegador interno de app |
+| "O envio de fotos ainda não abriu" | `UPLOAD_OPENS_AT` no `.env` (ISO com offset) |
+| Câmera não abre | precisa de HTTPS e de navegador nativo (Safari/Chrome), não de navegador interno de app (WhatsApp, Instagram) |
 | Upload 507 | pouco espaço em disco (`MIN_FREE_DISK_MB`); `df -h` |
-| `429` no `/api/admin/…` com a senha certa | limite de tentativas erradas do admin (`ADMIN_MAX_FAILURES_PER_WINDOW`): espere o tempo do `Retry-After` ou use outro IP (dados móveis) |
-| `429 export_in_progress` ao baixar o ZIP | já há uma exportação em andamento; espere ~30 s (ela termina ou é liberada quando o cliente desiste) |
-| ZIP baixado incompleto / "arquivo corrompido" | a conexão caiu no meio (não há retomada): baixe de novo, de preferência no Wi-Fi/cabo, ou use `rclone`/`scp` |
-| Erro de permissão no banco após backup | rodou `sqlite3` como root sem o `setpriv`? Use o `backup.sh` como está; arrume com `sudo chown -R 1000:1000 data` |
+| `429` no admin com a senha certa | limite de tentativas erradas: espere o `Retry-After` ou use outro IP (dados móveis) |
+| ZIP baixado incompleto | a conexão caiu (não há retomada): baixe de novo no Wi-Fi/cabo, ou use `rclone`/`scp` |
+| Erro de permissão no banco após backup | use o `backup.sh` como está; arrume com `sudo chown -R 1000:1000 data` |
 
-## Estrutura
+## Estrutura do repositório
 
 ```
-server/     API Express + Prisma (src/, prisma/, test/)
+server/     API Express + Prisma (src/, prisma/, test/, admin-ui/)
 web/        React + Vite
-scripts/    backup.sh, reset-data.mjs (e, futuramente, loadtest)
+scripts/    backup.sh, reset-data.mjs
 docker/     entrypoint.sh
 Dockerfile, docker-compose.yml, .env.example
+AGENTS.md   especificação completa do projeto
+PROGRESS.md histórico de desenvolvimento · BUGS.md registro de bugs
 ```
+
+## Licença
+
+[MIT](LICENSE).

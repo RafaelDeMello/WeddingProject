@@ -42,7 +42,7 @@ Este arquivo é a especificação do projeto e vale para toda sessão, independe
 - **Backend:** Node 22 + Express, Zod para validação, Prisma + **SQLite**, multer (memoryStorage), sharp, file-type
 - **Frontend:** React + Vite (build estático servido pelo próprio Express)
 - **Testes:** Vitest + Supertest
-- **Deploy:** Docker + Docker Compose numa VPS Ubuntu, atrás de um Caddy já existente
+- **Deploy:** Docker + Docker Compose numa VPS Ubuntu, atrás de um Caddy (proxy reverso com HTTPS automático)
 
 Estrutura sugerida (npm workspaces):
 
@@ -240,19 +240,14 @@ Validar todas as envs com Zod no boot; falhar rápido se algo estiver inválido.
 
 ## Deploy na VPS
 
-**Contexto do servidor:**
+**Arquitetura de referência:**
 
-- Ubuntu, Docker Compose. Sem Dokploy.
-- Existe um **Caddy** em container (`caddy`) ocupando as portas 80/443, com compose em `/opt/caddy`. Ele é o proxy global da VPS.
-- DNS já criado: `fotos.example.com` → IP da VPS.
-- O app deve ficar em `/opt/apps/weddingrafessa` (clone do repositório + `.env`).
+- Ubuntu + Docker Compose, sem PaaS.
+- Um **Caddy** em container ocupa as portas 80/443 e termina o HTTPS; o app fica na mesma rede Docker (`proxy`) e **não publica portas**.
+- DNS: um subdomínio apontando para o IP da VPS.
+- O app fica em `/opt/apps/weddingrafessa` (clone do repositório + `.env`). O passo a passo está no [`README.md`](README.md).
 
-**Antes de configurar a rede**, inspecionar como o Caddy alcança os upstreams atuais: ler o `Caddyfile` e rodar `docker inspect caddy` para ver redes e mounts. Seguir o **mesmo padrão**:
-
-- Se usar rede Docker compartilhada, colocar o app nessa rede como `external` e usar `reverse_proxy weddingrafessa:3000`.
-- Se os upstreams forem portas publicadas no host, publicar em `127.0.0.1:3100:3000` e replicar a forma de acesso existente.
-
-Bloco a adicionar ao Caddyfile:
+Bloco do Caddyfile:
 
 ```
 fotos.example.com {
@@ -260,7 +255,7 @@ fotos.example.com {
         max_size 10MB
     }
     encode gzip
-    reverse_proxy <upstream conforme padrão existente>
+    reverse_proxy weddingrafessa:3000
 }
 ```
 
@@ -276,7 +271,7 @@ Só então:
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-Ajustar o caminho do Caddyfile conforme o mount real. **Nunca** reiniciar/recriar o container do Caddy e **nunca** alterar a configuração da VPS sem confirmação explícita minha.
+Ajustar o caminho do Caddyfile conforme o mount real. Prefira `caddy reload` a reiniciar o container do Caddy.
 
 ## Backup
 

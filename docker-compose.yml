@@ -1,7 +1,7 @@
-# weddingrafessa — deploy na VPS (/opt/apps/weddingrafessa), atrás do Caddy global.
+# weddingrafessa — deploy em uma VPS (ex.: /opt/apps/weddingrafessa), atrás de um proxy reverso.
 #
-# O Caddy (container `caddy`) está na rede Docker externa `proxy`. O app entra nessa rede
-# e NÃO publica portas no host: o Caddy o alcança como `weddingrafessa:3000`.
+# O proxy (Caddy) fica na rede Docker externa `proxy` (crie com `docker network create proxy`).
+# O app entra nessa rede e NÃO publica portas no host: o proxy o alcança como `weddingrafessa:3000`.
 #
 # Primeiro `up` (o bind mount precisa pertencer ao usuário do container, uid 1000):
 #   mkdir -p data && sudo chown 1000:1000 data

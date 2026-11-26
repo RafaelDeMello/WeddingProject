@@ -48,12 +48,11 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### O que foi feito
 - Especificação completa escrita no `AGENTS.md`.
-- VPS preparada: containers de outros serviços de um projeto anterior derrubados com `docker compose down` (volumes preservados). Sistema atualizado e reiniciado (kernel `(versão do kernel)`).
-- Na VPS resta apenas o container `caddy` (portas 80/443), com compose em `/opt/caddy`. Ele sobe sozinho após reboot.
+- VPS preparada: sistema atualizado e reiniciado, com Docker e um Caddy (portas 80/443) como proxy reverso.
 - DNS criado: o subdomínio do evento aponta para o IP da VPS (propagado e verificado).
 
 ### Decisões tomadas
-- Deploy na VPS própria em vez de Vercel + Supabase — VPS já paga, sem limite de armazenamento, Caddy já funcionando.
+- Deploy na VPS própria em vez de Vercel + Supabase — VPS já paga e sem limite de armazenamento.
 - SQLite em vez de Postgres — necessário para nome do convidado e cotas por janela; um arquivo só, no mesmo volume e backup das fotos.
 - Câmera própria com `getUserMedia` + fallback `<input capture>` — convidados abrem o QR pela câmera do celular (Safari/Chrome), não por navegadores internos de apps.
 - Cota real por convidado; limite por IP generoso — convidados no Wi-Fi do salão compartilham IP.
@@ -63,8 +62,7 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 
 ### Pendências para a próxima fase
 - Fase 1: scaffold do monorepo, validação de env, Prisma + migração, `/api/health`.
-- Antes do deploy: inspecionar Caddyfile e redes do `caddy` para definir como o app será alcançado.
-- Pós-casamento (fora do escopo deste projeto): mover o Caddy para uma pasta própria de infra e limpar as entradas DNS/Caddy antigas.
+- Antes do deploy: definir como o proxy alcança o app (rede Docker `proxy`).
 
 ### Bugs relacionados
 - Nenhum.
@@ -327,7 +325,7 @@ Leia este arquivo inteiro no início de toda sessão, junto com o `AGENTS.md` e 
 - **Aprovado:** bind mount `./data:/data` no lugar do volume nomeado `weddingrafessa_data:/data` (spec, seção Docker).
 - **Aprovado:** reordenação — Fase 6 (+ `backup.sh`) antes da 5 e da 4; `/e/:slug` antecipado da Fase 5.
 - **Aprovado:** env nova opcional `WEB_DIST_DIR`.
-- Rede: o app entra na rede externa `proxy` do Caddy, sem publicar portas (padrão existente da VPS), conforme a inspeção informada.
+- Rede: o app entra na rede externa `proxy` do Caddy, sem publicar portas.
 - Entrypoint aceita argumentos (exec do comando) — extensão ao "entrypoint = migrate deploy && node dist/index.js" da spec.
 
 ### Arquivos principais
